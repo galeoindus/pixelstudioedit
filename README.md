@@ -1,14 +1,14 @@
-# pixelstudio
+# Pixel Studio Edit
 
-A free, open-source pixel art editor that runs entirely in your browser. No install, no account, no uploads — every pixel stays on your machine.
+A free, open-source pixel art **and text** editor that runs entirely in your browser. No install, no account, no uploads — every pixel stays on your machine.
 
-**Live editor:** [galeoindus.github.io/pixelstudio](https://galeoindus.github.io/pixelstudio/)
+**Live editor:** [galeoindus.github.io/pixelstudioedit](https://galeoindus.github.io/pixelstudioedit/)
 
-![pixelstudio screenshot](docs/preview.png)
+![Pixel Studio Edit screenshot](docs/preview.png)
 
 ## Why it exists
 
-Most pixel editors are either desktop-only or locked behind a subscription. pixelstudio is a single static site: open `index.html` and start drawing. It was built as an original implementation after studying how popular mobile pixel-art tools structure their workflow — the interface is familiar, the code and assets are new and MIT licensed.
+Most pixel editors are desktop-only or locked behind a subscription, and most "text on photo" apps are ad-supported. Pixel Studio Edit is a single static site: open `index.html` and start drawing or typing. The feature set follows what people expect from a mobile pixel-art editor — layers, 3D text, stickers, gradients, palettes, background removal — but the code and assets are new and MIT licensed.
 
 ## Interface
 
@@ -16,38 +16,47 @@ Everything is organised around one canvas:
 
 - **Left rail** — the ten tools, each with its keyboard letter. The colour chip at the bottom swaps primary/secondary.
 - **Quick bar** — brush size, opacity, mirror X/Y and the pixel grid, always within reach while drawing.
-- **Right panel** (bottom sheet on phones) — six tabs: **Colour, Layers, Effects, Text, 3D, Canvas**. Only one panel is open at a time, so nothing is buried in a collapsed accordion.
+- **Right panel** (bottom sheet on phones) — six tabs: **Text, Stickers, Colour, Layers, Effects, 3D**. One panel at a time, so nothing is buried in a collapsed accordion.
+- **Canvas chip** in the top bar — size presets, resize, flip and rotate.
 - **Full-screen canvas** — the ⛶ button hides every panel for distraction-free drawing (and asks the browser for real full screen).
-- **File menu** — New, Open, Save, Import image, Export PNG, Restore autosave, Keyboard shortcuts.
+- **File menu** — New, Open, Save, Import image, Export PNG, Canvas, Restore autosave, Shortcuts.
 
 ## Features
+
+**Text**
+- Multiple lines, 15 font choices across pixel, display, handwriting and clean groups
+- Fill with a solid colour **or a linear gradient** between two colours
+- Stroke (outline), drop shadow, curved text, emboss and reflection
+- **3D text**: extruded depth with adjustable angle, side colour and auto shading
+- Style presets: Plain, Poster, Neon
+
+**Stickers**
+- 40 built-in shapes and emoji, adjustable size, placed at the tap anchor or centred
 
 **Drawing**
 - Pencil, eraser, fill bucket, line, rectangle, ellipse, eyedropper, rectangular select + move, text, pan
 - Brush size 1–24 px, opacity, fill tolerance, filled or outlined shapes
-- Mirror on X, Y, or both — for sprites and tiles
-- Pixel grid overlay, transparency checkerboard, right-click draws with the secondary colour
+- Mirror on X, Y, or both; pixel grid; transparency checkerboard; right-click draws with the secondary colour
 
 **Layers**
 - Unlimited layers: visibility, lock, rename, reorder, duplicate, delete, merge down, clear
 - Per-layer opacity and live thumbnails
 
-**Colour**
+**Colour and background**
 - Primary/secondary colours, hex field, native picker
 - Palettes: DawnBringer 16, PICO-8, Sweetie 16, Game Boy, NES, Grayscale 8, Sepia 8 — or build your own
+- Background fill in a solid colour or a gradient
 
-**Adjustments and effects**
+**Effects**
 - Live brightness, contrast, saturation and hue with apply/reset
-- Invert, grayscale, posterize, threshold, blur, noise
-- Outline and drop shadow
-- Palette reduction plus two dithering modes (Floyd–Steinberg and ordered/Bayer) — the quickest way to turn a photo into pixel art
+- Invert, grayscale, posterize, threshold, blur, noise, **vignette, stripes**, outline, drop shadow
+- **Remove background** by colour or by white, with a tolerance slider
+- Palette reduction plus Floyd–Steinberg and ordered/Bayer dithering
 
-**3D**
-- **3D text** — extrudes the text from the Text tab into a solid block, with depth, angle, side colour and auto shading, plus Block / Deep / Isometric presets
-- **3D image** — turns and tilts the active layer with a perspective projection, and can extrude it for depth
+**3D image**
+- Turn, tilt (perspective projection) and extrude the active layer
 
-**Canvas and files**
-- Presets from 16² to 512², or any size up to 1024²; resize, flip, rotate 90°
+**Files**
 - Export PNG at 1×–20× with nearest-neighbour upscaling
 - Save/open projects as `.json` (layers preserved), import images onto a new layer
 - Autosave to local storage, restorable at any time
@@ -59,8 +68,8 @@ Open `index.html` in a browser — no build step, no dependencies.
 To run it locally with a server (recommended, so autosave and file APIs behave predictably):
 
 ```bash
-git clone https://github.com/galeoindus/pixelstudio.git
-cd pixelstudio
+git clone https://github.com/galeoindus/pixelstudioedit.git
+cd pixelstudioedit
 python3 -m http.server 8000
 # then open http://localhost:8000
 ```
@@ -85,7 +94,7 @@ python3 -m http.server 8000
 index.html          markup: rail, quick bar, canvas, tabbed panels
 css/style.css       the whole UI, including the mobile bottom sheet
 js/core.js          pure image routines: colour maths, effects, dithering, 3D (no DOM)
-js/app.js           editor: tools, layers, history, panels, file IO
+js/app.js           editor: tools, layers, text styling, stickers, history, file IO
 tests/core.test.js  unit tests for js/core.js
 tests/ui.js         headless browser test: boots the app and drives every control
 docs/preview.png    screenshot used above
@@ -112,4 +121,4 @@ Issues and pull requests are welcome. Keep `js/core.js` free of DOM access so th
 
 MIT — see [LICENSE](LICENSE).
 
-pixelstudio is an independent project. It is not affiliated with, endorsed by, or derived from the source code or assets of any commercial pixel-art app.
+Pixel Studio Edit is an independent project. It is not affiliated with, endorsed by, or derived from the source code or assets of any commercial pixel-art app.
