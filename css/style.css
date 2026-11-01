@@ -596,3 +596,32 @@ input[type="color"] {
 
 .status-hint { margin-left: auto; color: #5f687c; }
 @media (max-width: 880px) { .status-hint { display: none; } }
+
+/* -------------------------------------------------------------- font picker */
+
+.font-list {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 5px;
+  max-height: 186px;
+  overflow-y: auto;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--bg);
+}
+.font-item {
+  padding: 9px 7px;
+  background: var(--bg-3);
+  border: 1px solid var(--line);
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 14px;
+  line-height: 1.1;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  text-align: left;
+}
+.font-item:hover { background: #2b3140; }
+.font-item.sel { border-color: var(--accent); background: #22304a; color: var(--accent); }
