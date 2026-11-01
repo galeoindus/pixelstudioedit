@@ -1,4 +1,4 @@
-/* Pixel Studio — editor front-end.
+/* pixelstudio — editor front-end.
  * Original implementation, MIT licensed. Runs entirely in the browser;
  * nothing is uploaded anywhere.
  */
@@ -832,7 +832,7 @@
 
   function projectObject() {
     return {
-      app: 'Pixel Studio', version: 1,
+      app: 'pixelstudio', version: 1,
       w: S.w, h: S.h,
       palette: S.palette.slice(),
       layers: S.layers.map(function (l) {
@@ -845,7 +845,7 @@
   }
 
   function loadProject(obj) {
-    if (!obj || !obj.layers || !obj.layers.length) { toast('Not a Pixel Studio project'); return; }
+    if (!obj || !obj.layers || !obj.layers.length) { toast('Not a pixelstudio project'); return; }
     S.w = obj.w || 64; S.h = obj.h || 64;
     S.layers = obj.layers.map(function (o) {
       var l = mkLayer(o.name || 'Layer');
@@ -903,7 +903,7 @@
     c.imageSmoothingEnabled = false;
     c.drawImage(composite(), 0, 0, cv.width, cv.height);
     cv.toBlob(function (blob) {
-      download(blob, filename || 'pixel-studio.png');
+      download(blob, filename || 'pixelstudio.png');
       toast('Exported ' + cv.width + '×' + cv.height + ' PNG');
     }, 'image/png');
   }
@@ -978,7 +978,7 @@
 
     $('#btn-save').onclick = function () {
       var blob = new Blob([JSON.stringify(projectObject())], { type: 'application/json' });
-      download(blob, 'pixel-studio-project.json');
+      download(blob, 'pixelstudio-project.json');
       toast('Project saved');
     };
 
@@ -995,11 +995,11 @@
         [1, 2, 4, 8, 10, 16, 20].map(function (s) {
           return '<option value="' + s + '"' + (s === 8 ? ' selected' : '') + '>' + s + '× (' + (S.w * s) + '×' + (S.h * s) + ')</option>';
         }).join('') + '</select></div>' +
-        '<div class="row"><label>Name</label><input type="text" id="ex-name" value="pixel-studio"></div>' +
+        '<div class="row"><label>Name</label><input type="text" id="ex-name" value="pixelstudio"></div>' +
         '<div class="hint">Nearest-neighbour scaling keeps the pixels sharp.</div>',
         function (ov) {
           var s = +$('#ex-scale', ov).value || 1;
-          var name = ($('#ex-name', ov).value || 'pixel-studio').replace(/[^\w\-]+/g, '-');
+          var name = ($('#ex-name', ov).value || 'pixelstudio').replace(/[^\w\-]+/g, '-');
           exportPNG(s, name + '.png');
         }, 'Download');
     };
@@ -1146,7 +1146,7 @@
     if ((e.ctrlKey || e.metaKey) && k === 's') {
       e.preventDefault();
       var blob = new Blob([JSON.stringify(projectObject())], { type: 'application/json' });
-      download(blob, 'pixel-studio-project.json');
+      download(blob, 'pixelstudio-project.json');
       return;
     }
     if ((e.ctrlKey || e.metaKey) && k === 'a') {
