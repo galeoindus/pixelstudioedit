@@ -102,6 +102,12 @@
         </div>
       </div>
 
+      <div class="text-overlay" id="text-overlay" hidden>
+        <input type="text" id="text-overlay-input" placeholder="Type and press Enter…" autocomplete="off">
+        <button class="btn primary" id="text-overlay-ok">Place</button>
+        <button class="btn" id="text-overlay-cancel">✕</button>
+      </div>
+
       <div class="stage-wrap" id="stage-wrap">
         <div class="stage" id="stage">
           <canvas id="screen" width="64" height="64"></canvas>
@@ -132,6 +138,10 @@
         <section class="pane active" data-pane="text">
           <textarea id="text-content" placeholder="Type your text…" rows="2"></textarea>
           <div class="font-list" id="font-list"></div>
+          <div class="row tight">
+            <button class="btn" id="font-upload-btn">Use my own font…</button>
+            <span class="hint-inline" id="font-note"></span>
+          </div>
           <div class="row"><label>Size</label><input type="range" id="text-size" min="4" max="64" value="12"><b id="text-size-val">12</b></div>
           <div class="row tight">
             <button class="toggle on" id="text-bold">Bold</button>
@@ -337,6 +347,7 @@
 
 <input type="file" id="file-import" accept="image/*" hidden>
 <input type="file" id="file-open" accept=".json,application/json" hidden>
+<input type="file" id="font-upload" accept=".ttf,.otf,.woff,.woff2" hidden>
 <div id="toast"></div>
 
 <script src="js/core.js"></script>
