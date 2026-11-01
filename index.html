@@ -1,0 +1,266 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pixel Studio — pixel art editor</title>
+<meta name="description" content="Pixel Studio is a free, open-source pixel art editor that runs entirely in your browser: layers, shapes, text, palettes, dithering, filters and PNG export.">
+<link rel="stylesheet" href="css/style.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%2314161c'/><rect x='3' y='3' width='5' height='5' fill='%236ee7b7'/><rect x='8' y='8' width='5' height='5' fill='%2338bdf8'/></svg>">
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">Pixel <span>Studio</span></div>
+  <button class="btn" id="btn-new">New</button>
+  <button class="btn" id="btn-open">Open</button>
+  <button class="btn" id="btn-save">Save</button>
+  <button class="btn" id="btn-import">Import image</button>
+  <button class="btn primary" id="btn-export">Export PNG</button>
+  <div class="spacer"></div>
+  <button class="btn ghost" id="btn-undo" title="Undo (Ctrl+Z)">↶</button>
+  <button class="btn ghost" id="btn-redo" title="Redo (Ctrl+Shift+Z)">↷</button>
+  <div class="zoombox">
+    <button id="zoom-out" title="Zoom out (-)">−</button>
+    <span class="label" id="zoom-label">800%</span>
+    <button id="zoom-in" title="Zoom in (+)">+</button>
+    <button id="zoom-fit" title="Fit to screen (0)">Fit</button>
+  </div>
+</header>
+
+<main>
+  <aside class="toolbar" id="toolbar">
+    <button class="tool active" data-tool="pencil" title="Pencil (B)">
+      <svg viewBox="0 0 24 24"><path d="M4 20l4-1 10-10-3-3L5 16l-1 4z"/><path d="M14 6l3 3"/></svg>
+      <span class="key">B</span>
+    </button>
+    <button class="tool" data-tool="eraser" title="Eraser (E)">
+      <svg viewBox="0 0 24 24"><path d="M4 16l7-7 6 6-3 3H7l-3-2z"/><path d="M11 9l6-6 6 6-6 6"/></svg>
+      <span class="key">E</span>
+    </button>
+    <button class="tool" data-tool="bucket" title="Fill bucket (G)">
+      <svg viewBox="0 0 24 24"><path d="M5 11l7-7 7 7-7 7-7-7z"/><path d="M19 15c1.3 2 2 3 2 4a2 2 0 1 1-4 0c0-1 .7-2 2-4z"/></svg>
+      <span class="key">G</span>
+    </button>
+    <div class="tool-sep"></div>
+    <button class="tool" data-tool="line" title="Line (L)">
+      <svg viewBox="0 0 24 24"><path d="M5 19L19 5"/></svg>
+      <span class="key">L</span>
+    </button>
+    <button class="tool" data-tool="rect" title="Rectangle (R)">
+      <svg viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="14" rx="1"/></svg>
+      <span class="key">R</span>
+    </button>
+    <button class="tool" data-tool="ellipse" title="Ellipse (O)">
+      <svg viewBox="0 0 24 24"><ellipse cx="12" cy="12" rx="8" ry="7"/></svg>
+      <span class="key">O</span>
+    </button>
+    <div class="tool-sep"></div>
+    <button class="tool" data-tool="picker" title="Eyedropper (I)">
+      <svg viewBox="0 0 24 24"><path d="M14 4l6 6-2 2-1-1-7 7-4 1 1-4 7-7-1-1 1-3z"/></svg>
+      <span class="key">I</span>
+    </button>
+    <button class="tool" data-tool="select" title="Select &amp; move (M)">
+      <svg viewBox="0 0 24 24"><path d="M4 8V4h4M20 8V4h-4M4 16v4h4M20 16v4h-4"/><path d="M4 12h16" stroke-dasharray="2 2"/></svg>
+      <span class="key">M</span>
+    </button>
+    <button class="tool" data-tool="text" title="Text (T)">
+      <svg viewBox="0 0 24 24"><path d="M5 6h14M12 6v13M9 19h6"/></svg>
+      <span class="key">T</span>
+    </button>
+    <div class="tool-sep"></div>
+    <button class="tool" data-tool="hand" title="Pan (Space / H)">
+      <svg viewBox="0 0 24 24"><path d="M9 11V5a1.5 1.5 0 0 1 3 0v5M12 10V4a1.5 1.5 0 0 1 3 0v7M15 11V6a1.5 1.5 0 0 1 3 0v9a6 6 0 0 1-6 6h-1a5 5 0 0 1-5-5v-4a1.5 1.5 0 0 1 3 0"/></svg>
+      <span class="key">H</span>
+    </button>
+  </aside>
+
+  <section class="viewport" id="viewport">
+    <div id="stage">
+      <canvas id="screen" width="512" height="512"></canvas>
+    </div>
+    <div class="statusbar">
+      <span id="status-size">64 × 64</span>
+      <span id="status-pos">0, 0</span>
+      <span id="status-layer">Layer 1</span>
+    </div>
+  </section>
+
+  <aside class="panels" id="panels">
+
+    <details class="panel" open>
+      <summary>Colour</summary>
+      <div class="body">
+        <div class="swatch-current">
+          <div class="big-swatch" title="Primary colour"><i id="swatch-primary"></i></div>
+          <div class="big-swatch small" title="Secondary colour"><i id="swatch-secondary"></i></div>
+          <div style="flex:1; display:grid; gap:6px">
+            <div class="hexrow">
+              <input type="text" id="hex-input" value="#1B1B1F" spellcheck="false">
+              <input type="color" id="color-input" value="#1b1b1f">
+            </div>
+            <button class="btn" id="swap-colors" style="font-size:11px;padding:3px">Swap colours (X)</button>
+          </div>
+        </div>
+        <div class="row tight">
+          <select id="palette-select"></select>
+        </div>
+        <div class="palette" id="palette"></div>
+        <div class="grid2">
+          <button class="btn" id="add-swatch" style="font-size:11px">Add to palette</button>
+          <button class="btn" id="reset-palette" style="font-size:11px">Reset palette</button>
+        </div>
+      </div>
+    </details>
+
+    <details class="panel" open>
+      <summary>Brush</summary>
+      <div class="body">
+        <div class="row"><label>Size</label><input type="range" id="brush-size" min="1" max="24" step="1" value="1"><span class="val" id="brush-size-val">1</span></div>
+        <div class="row"><label>Opacity</label><input type="range" id="brush-opacity" min="10" max="100" step="5" value="100"><span class="val" id="brush-opacity-val">100</span></div>
+        <div class="row">
+          <label class="check"><input type="checkbox" id="sym-x"> Mirror X</label>
+          <label class="check"><input type="checkbox" id="sym-y"> Mirror Y</label>
+        </div>
+        <div class="row">
+          <label class="check"><input type="checkbox" id="fill-shapes"> Filled shapes</label>
+          <label class="check"><input type="checkbox" id="show-grid" checked> Grid</label>
+        </div>
+        <div class="row"><label>Tolerance</label><input type="range" id="tolerance" min="0" max="128" step="1" value="0"><span class="val" id="tolerance-val">0</span></div>
+      </div>
+    </details>
+
+    <details class="panel" open>
+      <summary>Layers</summary>
+      <div class="body">
+        <div class="layers" id="layers"></div>
+        <div class="grid3">
+          <button class="btn" id="layer-add" title="New layer">+ Add</button>
+          <button class="btn" id="layer-dup" title="Duplicate layer">Dup</button>
+          <button class="btn" id="layer-del" title="Delete layer">Del</button>
+        </div>
+        <div class="grid2">
+          <button class="btn" id="layer-up">▲ Up</button>
+          <button class="btn" id="layer-down">▼ Down</button>
+        </div>
+        <div class="grid2">
+          <button class="btn" id="layer-merge">Merge down</button>
+          <button class="btn" id="layer-clear">Clear layer</button>
+        </div>
+        <div class="row"><label>Opacity</label><input type="range" id="layer-opacity" min="0" max="100" value="100"><span class="val" id="layer-opacity-val">100</span></div>
+      </div>
+    </details>
+
+    <details class="panel">
+      <summary>Adjust</summary>
+      <div class="body">
+        <div class="row"><label>Brightness</label><input type="range" id="fx-brightness" min="-100" max="100" value="0"><span class="val" id="fx-brightness-val">0</span></div>
+        <div class="row"><label>Contrast</label><input type="range" id="fx-contrast" min="-100" max="100" value="0"><span class="val" id="fx-contrast-val">0</span></div>
+        <div class="row"><label>Saturation</label><input type="range" id="fx-saturation" min="-100" max="100" value="0"><span class="val" id="fx-saturation-val">0</span></div>
+        <div class="row"><label>Hue</label><input type="range" id="fx-hue" min="-180" max="180" value="0"><span class="val" id="fx-hue-val">0</span></div>
+        <div class="grid2">
+          <button class="btn" id="fx-apply">Apply</button>
+          <button class="btn" id="fx-reset">Reset</button>
+        </div>
+        <div class="hint">Sliders preview live on the active layer; Apply commits them as one undo step.</div>
+      </div>
+    </details>
+
+    <details class="panel">
+      <summary>Effects</summary>
+      <div class="body">
+        <div class="grid2">
+          <button class="btn" data-fx="invert">Invert</button>
+          <button class="btn" data-fx="grayscale">Grayscale</button>
+          <button class="btn" data-fx="posterize">Posterize</button>
+          <button class="btn" data-fx="threshold">Threshold</button>
+        </div>
+        <div class="row"><label>Levels</label><input type="range" id="fx-levels" min="2" max="16" value="4"><span class="val" id="fx-levels-val">4</span></div>
+        <div class="row"><label>Blur</label><input type="range" id="fx-blur" min="1" max="6" value="1"><span class="val" id="fx-blur-val">1</span></div>
+        <div class="row"><label>Noise</label><input type="range" id="fx-noise" min="1" max="80" value="24"><span class="val" id="fx-noise-val">24</span></div>
+        <div class="grid2">
+          <button class="btn" data-fx="blur">Blur</button>
+          <button class="btn" data-fx="noise">Noise</button>
+        </div>
+        <div class="row"><label>Outline</label><input type="number" id="outline-width" min="1" max="6" value="1" style="width:64px"><input type="color" id="outline-color" value="#000000"></div>
+        <button class="btn" data-fx="outline">Add outline</button>
+        <div class="row"><label>Shadow</label><input type="number" id="shadow-dx" min="-12" max="12" value="2" style="width:56px"><input type="number" id="shadow-dy" min="-12" max="12" value="2" style="width:56px"><input type="color" id="shadow-color" value="#000000"></div>
+        <button class="btn" data-fx="shadow">Drop shadow</button>
+      </div>
+    </details>
+
+    <details class="panel">
+      <summary>Palette &amp; dither</summary>
+      <div class="body">
+        <div class="row"><label>Palette</label><select id="dither-palette"></select></div>
+        <div class="grid2">
+          <button class="btn" id="do-quantize">Reduce colours</button>
+          <button class="btn" id="do-dither-fs">Dither (Floyd)</button>
+        </div>
+        <button class="btn" id="do-dither-bayer">Dither (ordered / Bayer)</button>
+        <div class="hint">Reduces the active layer to the selected palette — great for turning photos into pixel art.</div>
+      </div>
+    </details>
+
+    <details class="panel">
+      <summary>Text</summary>
+      <div class="body">
+        <textarea id="text-content" placeholder="Type your text…"></textarea>
+        <div class="row"><label>Font</label>
+          <select id="text-font">
+            <option value="'Press Start 2P', monospace">Pixel / arcade</option>
+            <option value="'Courier New', monospace">Monospace</option>
+            <option value="Impact, sans-serif">Impact</option>
+            <option value="Georgia, serif">Serif</option>
+            <option value="Arial, sans-serif">Sans</option>
+            <option value="'Comic Sans MS', cursive">Handwriting</option>
+          </select>
+        </div>
+        <div class="row"><label>Size</label><input type="number" id="text-size" min="4" max="200" value="12" style="width:70px">
+          <label class="check"><input type="checkbox" id="text-bold" checked> Bold</label>
+        </div>
+        <div class="grid2">
+          <button class="btn" id="text-add">Add text</button>
+          <button class="btn" id="text-clear">Clear field</button>
+        </div>
+        <div class="hint">Pick the Text tool (T) and click on the canvas to set where the text lands.</div>
+      </div>
+    </details>
+
+    <details class="panel">
+      <summary>Canvas</summary>
+      <div class="body">
+        <div class="grid2">
+          <button class="btn" id="doc-fliph">Flip H</button>
+          <button class="btn" id="doc-flipv">Flip V</button>
+          <button class="btn" id="doc-rot-cw">Rotate 90° ⟳</button>
+          <button class="btn" id="doc-rot-ccw">Rotate 90° ⟲</button>
+        </div>
+        <div class="row"><label>Resize</label><input type="number" id="resize-w" min="1" max="1024" value="64" style="width:70px">×<input type="number" id="resize-h" min="1" max="1024" value="64" style="width:70px"></div>
+        <button class="btn" id="do-resize">Resize canvas</button>
+        <div class="hint" id="autosave-hint">Autosave: off</div>
+        <button class="btn" id="btn-restore">Restore autosave</button>
+      </div>
+    </details>
+
+    <details class="panel">
+      <summary>Shortcuts</summary>
+      <div class="body hint" style="line-height:1.7">
+        B pencil · E eraser · G fill · L line · R rect · O ellipse<br>
+        I picker · M select · T text · H pan · X swap colours<br>
+        [ ] brush size · + − zoom · 0 fit · Ctrl+Z / Ctrl+Shift+Z undo/redo<br>
+        Ctrl+A select all · Delete clears selection · Esc deselect<br>
+        Right-click draws with the secondary colour
+      </div>
+    </details>
+  </aside>
+</main>
+
+<div id="toast"></div>
+<input type="file" id="file-import" accept="image/*" hidden>
+<input type="file" id="file-open" accept=".json,.pstudio,application/json" hidden>
+
+<script src="js/core.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
