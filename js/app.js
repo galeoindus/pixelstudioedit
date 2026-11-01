@@ -1,4 +1,4 @@
-/* pixelstudio — editor front-end.
+/* Pixel Studio Edit — editor front-end.
  * Original implementation, MIT licensed. Everything runs locally in the browser.
  */
 (function () {
@@ -10,7 +10,14 @@
   var byId = function (id) { return document.getElementById(id); };
 
   var MAX_BACKING = 12e6;
-  var AUTOSAVE_KEY = 'pixelstudio.autosave.v2';
+  var AUTOSAVE_KEY = 'pixelstudioedit.autosave.v3';
+
+  var STICKERS = [
+    '★', '☆', '✦', '❤', '♥', '●', '■', '▲', '◆', '⬟',
+    '✓', '✖', '→', '↺', '☀', '☁', '⚡', '♪', '✈', '⚑',
+    '☺', '☹', '✿', '❄', '🍄', '🌸', '⭐', '🔥', '🎮', '👾',
+    '🤖', '💎', '🎈', '🍕', '😀', '😎', '🚀', '💡', '🏆', '🎯'
+  ];
 
   var S = {
     w: 64, h: 64, zoom: 8,
@@ -23,9 +30,16 @@
     history: [], hpos: -1,
     fxBase: null, textAnchor: null,
     palette: [], ready: false, spaceDown: false,
-    text: { bold: true, italic: false },
+    text: {
+      bold: true, italic: false, gradient: false,
+      stroke: 0, strokeColor: '#000000',
+      shadow: 0, shadowColor: '#000000',
+      curve: 0, depth: 0, depthColor: '#2b2b3a',
+      reflection: false, emboss: false
+    },
+    sticker: '★',
     mode3d: 'text',
-    tab: 'colour'
+    tab: 'text'
   };
 
   var screen, screenCtx, stage, stageWrap;
@@ -50,7 +64,7 @@
 
   function on(id, evt, fn) {
     var el = byId(id);
-    if (!el) { console.warn('pixelstudio: missing element #' + id); return; }
+    if (!el) { console.warn('pixelstudioedit: missing element #' + id); return; }
     el.addEventListener(evt, fn);
   }
 
@@ -80,6 +94,14 @@
     a.click();
     a.remove();
     setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
+  }
+
+  function offscreen(w, h) {
+    var cv = document.createElement('canvas');
+    cv.width = w; cv.height = h;
+    var c = cv.getContext('2d');
+    c.imageSmoothingEnabled = false;
+    return cv;
   }
 
   /* ------------------------------------------------------------------ layers */
@@ -128,8 +150,6 @@
     });
     S.active = Math.min(snap.active, S.layers.length - 1);
     S.sel = null; S.floating = null; S.preview = null;
-    byId('resize-w').value = S.w;
-    byId('resize-h').value = S.h;
     render(); renderLayers(); updateStatus();
   }
 
@@ -537,11 +557,8 @@
     var l = guardLayer();
     if (!l) return;
     var r = S.sel;
-    var fl = document.createElement('canvas');
-    fl.width = r.w; fl.height = r.h;
-    var fc = fl.getContext('2d');
-    fc.imageSmoothingEnabled = false;
-    fc.drawImage(l.canvas, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
+    var fl = offscreen(r.w, r.h);
+    fl.getContext('2d').drawImage(l.canvas, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
     l.ctx.clearRect(r.x, r.y, r.w, r.h);
     S.floating = { canvas: fl, x: r.x, y: r.y, dx: 0, dy: 0, w: r.w, h: r.h };
     S.drag = { type: 'move', start: p };
@@ -678,10 +695,8 @@
     var nw = rotate ? S.h : S.w;
     var nh = rotate ? S.w : S.h;
     S.layers.forEach(function (l) {
-      var cv = document.createElement('canvas');
-      cv.width = nw; cv.height = nh;
+      var cv = offscreen(nw, nh);
       var c = cv.getContext('2d');
-      c.imageSmoothingEnabled = false;
       c.save();
       if (kind === 'flip-h') { c.translate(nw, 0); c.scale(-1, 1); }
       else if (kind === 'flip-v') { c.translate(0, nh); c.scale(1, -1); }
@@ -693,8 +708,6 @@
       l.ctx = cv.getContext('2d', { willReadFrequently: true });
     });
     S.w = nw; S.h = nh; S.sel = null; S.floating = null;
-    byId('resize-w').value = S.w;
-    byId('resize-h').value = S.h;
     pushHistory(); fitZoom(); render(); renderLayers(); updateStatus();
   }
 
@@ -702,17 +715,12 @@
     nw = Math.max(1, Math.min(1024, Math.round(nw || S.w)));
     nh = Math.max(1, Math.min(1024, Math.round(nh || S.h)));
     S.layers.forEach(function (l) {
-      var cv = document.createElement('canvas');
-      cv.width = nw; cv.height = nh;
-      var c = cv.getContext('2d');
-      c.imageSmoothingEnabled = false;
-      c.drawImage(l.canvas, 0, 0, S.w, S.h, 0, 0, nw, nh);
+      var cv = offscreen(nw, nh);
+      cv.getContext('2d').drawImage(l.canvas, 0, 0, S.w, S.h, 0, 0, nw, nh);
       l.canvas = cv;
       l.ctx = cv.getContext('2d', { willReadFrequently: true });
     });
     S.w = nw; S.h = nh; S.sel = null; S.floating = null;
-    byId('resize-w').value = nw;
-    byId('resize-h').value = nh;
     pushHistory(); fitZoom(); render(); renderLayers(); updateStatus();
   }
 
@@ -740,6 +748,8 @@
       case 'threshold': C.threshold(img, 128); break;
       case 'blur': C.blur(img, +byId('fx-blur').value); break;
       case 'noise': C.noise(img, +byId('fx-noise').value, Date.now() % 99991); break;
+      case 'vignette': C.vignette(img, 0.7); break;
+      case 'stripes': C.stripes(img, 4, 0.18); break;
       case 'outline': C.outline(img, byId('outline-color').value, +byId('outline-width').value); break;
       case 'shadow': C.dropShadow(img, +byId('shadow-dx').value, +byId('shadow-dy').value, byId('shadow-color').value, 1); break;
       default: return;
@@ -782,73 +792,260 @@
     commitLayer(got.layer, got.img);
   }
 
+  function fillBackground(mode) {
+    var l = guardLayer();
+    if (!l) return;
+    var ctx = l.ctx;
+    ctx.save();
+    if (mode === 'gradient') {
+      var g = ctx.createLinearGradient(0, 0, S.w, S.h);
+      g.addColorStop(0, S.color);
+      g.addColorStop(1, S.color2);
+      ctx.fillStyle = g;
+    } else {
+      ctx.fillStyle = S.color;
+    }
+    ctx.fillRect(0, 0, S.w, S.h);
+    ctx.restore();
+    pushHistory(); render(); renderLayers();
+    toast(mode === 'gradient' ? 'Gradient background' : 'Background filled');
+  }
+
+  function removeBackground(white) {
+    var got = readLayer();
+    if (!got) return;
+    var target = white ? [255, 255, 255] : C.parseColor(S.color);
+    C.chromaKey(got.img, target, +byId('bg-tolerance').value);
+    commitLayer(got.layer, got.img);
+    toast('Background removed');
+  }
+
   /* -------------------------------------------------------------------- text */
 
-  function textFontString(size) {
+  function textFont(size) {
     return (S.text.bold ? 'bold ' : '') + (S.text.italic ? 'italic ' : '') +
       Math.max(4, size) + 'px ' + byId('text-font').value;
   }
 
-  function paintText(ctx, txt, anchor, size) {
-    ctx.save();
-    ctx.font = textFontString(size);
-    ctx.textBaseline = 'top';
-    ctx.textAlign = 'left';
+  /* Draws one line, optionally curved, into ctx. */
+  function drawLine(ctx, line, x, y, size, curve) {
+    if (!curve) {
+      ctx.fillText(line, x, y);
+      if (S.text.stroke > 0) ctx.strokeText(line, x, y);
+      return;
+    }
+    var chars = Array.from(line);
+    var widths = chars.map(function (ch) { return ctx.measureText(ch).width; });
+    var total = widths.reduce(function (a, b) { return a + b; }, 0);
+    var acc = 0;
+    for (var i = 0; i < chars.length; i++) {
+      var t = chars.length === 1 ? 0 : (acc / Math.max(1, total)) * 2 - 1;
+      var dy = (curve / 100) * size * 1.4 * (t * t - 1);
+      ctx.fillText(chars[i], x + acc, y + dy);
+      if (S.text.stroke > 0) ctx.strokeText(chars[i], x + acc, y + dy);
+      acc += widths[i];
+    }
+  }
+
+  /* Builds the finished text as a canvas the size of the document. */
+  function buildTextCanvas() {
+    var txt = byId('text-content').value;
+    if (!txt || !txt.trim()) return null;
+    var size = +byId('text-size').value || 12;
+    var anchor = S.textAnchor || { x: 2, y: 2 };
+
+    // 1. mask (white text) — used for depth, shadow, reflection, emboss
+    var mask = offscreen(S.w, S.h);
+    var mc = mask.getContext('2d');
+    mc.font = textFont(size);
+    mc.textBaseline = 'top';
+    mc.fillStyle = '#ffffff';
     var lines = txt.split('\n');
     for (var i = 0; i < lines.length; i++) {
-      ctx.fillText(lines[i], anchor.x, anchor.y + i * Math.round(size * 1.2));
+      drawLine(mc, lines[i], anchor.x, anchor.y + i * Math.round(size * 1.25), size, S.text.curve);
     }
-    ctx.restore();
+
+    var out = offscreen(S.w, S.h);
+    var c = out.getContext('2d');
+
+    function tinted(colour) {
+      var cv = offscreen(S.w, S.h);
+      var cc = cv.getContext('2d');
+      cc.fillStyle = colour;
+      cc.fillRect(0, 0, S.w, S.h);
+      cc.globalCompositeOperation = 'destination-in';
+      cc.drawImage(mask, 0, 0);
+      return cv;
+    }
+
+    // 2. drop shadow
+    if (S.text.shadow > 0) {
+      var sh = tinted(S.text.shadowColor);
+      c.save();
+      c.globalAlpha = 0.75;
+      c.drawImage(sh, S.text.shadow, S.text.shadow);
+      c.restore();
+    }
+
+    // 3. reflection
+    if (S.text.reflection) {
+      var refl = tinted(S.color);
+      c.save();
+      c.globalAlpha = 0.32;
+      c.translate(0, S.h);
+      c.scale(1, -1);
+      c.drawImage(refl, 0, -(S.h - Math.round(size * 1.1)));
+      c.restore();
+    }
+
+    // 4. extrusion (3D depth)
+    if (S.text.depth > 0) {
+      var ang = (+byId('td-angle').value) * Math.PI / 180;
+      var img = mask.getContext('2d').getImageData(0, 0, S.w, S.h);
+      var sideRgb = C.parseColor(S.text.depthColor);
+      C.extrude(img, Math.cos(ang), Math.sin(ang), S.text.depth, sideRgb, null);
+      var dep = offscreen(S.w, S.h);
+      dep.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(img.data), S.w, S.h), 0, 0);
+      c.drawImage(dep, 0, 0);
+    }
+
+    // 5. emboss
+    if (S.text.emboss) {
+      c.save();
+      c.globalAlpha = 0.85;
+      c.drawImage(tinted('#ffffff'), -1, -1);
+      c.drawImage(tinted('#000000'), 1, 1);
+      c.restore();
+    }
+
+    // 6. face
+    c.save();
+    c.font = textFont(size);
+    c.textBaseline = 'top';
+    c.lineJoin = 'round';
+    var fill = S.color;
+    if (S.text.gradient) {
+      var mctx = offscreen(S.w, S.h).getContext('2d');
+      mctx.font = textFont(size);
+      var wMax = 0;
+      lines.forEach(function (ln) { wMax = Math.max(wMax, mctx.measureText(ln).width); });
+      var g = c.createLinearGradient(anchor.x, anchor.y, anchor.x + Math.max(2, wMax), anchor.y + Math.max(2, lines.length * size * 1.25));
+      g.addColorStop(0, S.color);
+      g.addColorStop(1, byId('text-grad2').value);
+      fill = g;
+    }
+    c.fillStyle = fill;
+    if (S.text.stroke > 0) {
+      c.strokeStyle = S.text.strokeColor;
+      c.lineWidth = S.text.stroke;
+    }
+    for (var j = 0; j < lines.length; j++) {
+      drawLine(c, lines[j], anchor.x, anchor.y + j * Math.round(size * 1.25), size, S.text.curve);
+    }
+    c.restore();
+
+    return out;
   }
 
   function addText() {
     var l = guardLayer();
     if (!l) return;
-    var txt = byId('text-content').value;
-    if (!txt.trim()) { toast('Type some text first'); return; }
-    var size = +byId('text-size').value || 12;
+    if (!byId('text-content').value.trim()) { toast('Type some text first'); return; }
+    var cv = buildTextCanvas();
+    if (!cv) return;
     l.ctx.save();
     l.ctx.globalAlpha = S.opacity;
-    l.ctx.fillStyle = S.color;
-    paintText(l.ctx, txt, S.textAnchor || { x: 2, y: 2 }, size);
+    l.ctx.drawImage(cv, 0, 0);
     l.ctx.restore();
     pushHistory(); render(); renderLayers();
     toast('Text added');
   }
 
-  /* ---------------------------------------------------------------------- 3D */
-
-  function textMaskCanvas(txt, size, anchor) {
-    var cv = document.createElement('canvas');
-    cv.width = S.w; cv.height = S.h;
-    var c = cv.getContext('2d');
-    c.fillStyle = '#ffffff';
-    paintText(c, txt, anchor, size);
-    return cv;
+  function applyStylePreset(name) {
+    var presets = {
+      plain: { stroke: 0, shadow: 0, depth: 0, curve: 0, reflection: false, emboss: false, gradient: false },
+      poster: { stroke: 2, shadow: 0, depth: 10, curve: 0, reflection: false, emboss: false, gradient: false },
+      neon: { stroke: 1, shadow: 6, depth: 0, curve: 0, reflection: true, emboss: false, gradient: true }
+    };
+    var p = presets[name];
+    if (!p) return;
+    Object.keys(p).forEach(function (k) { S.text[k] = p[k]; });
+    syncTextControls();
+    toast('Style: ' + name);
   }
+
+  function syncTextControls() {
+    byId('text-stroke').value = S.text.stroke;
+    byId('text-stroke-val').textContent = S.text.stroke;
+    byId('text-shadow').value = S.text.shadow;
+    byId('text-shadow-val').textContent = S.text.shadow;
+    byId('text-depth').value = S.text.depth;
+    byId('text-depth-val').textContent = S.text.depth;
+    byId('text-curve').value = S.text.curve;
+    byId('text-curve-val').textContent = S.text.curve;
+    byId('text-fill').classList.toggle('on', S.text.gradient);
+    byId('grad-row').hidden = !S.text.gradient;
+    byId('text-reflection').classList.toggle('on', S.text.reflection);
+    byId('text-emboss').classList.toggle('on', S.text.emboss);
+  }
+
+  /* ---------------------------------------------------------------- stickers */
+
+  function renderStickerGrid() {
+    var box = byId('sticker-grid');
+    box.innerHTML = '';
+    STICKERS.forEach(function (glyph) {
+      var b = document.createElement('button');
+      b.textContent = glyph;
+      b.title = 'Add ' + glyph;
+      b.className = 'sticker' + (S.sticker === glyph ? ' sel' : '');
+      b.onclick = function () {
+        S.sticker = glyph;
+        $$('#sticker-grid .sticker').forEach(function (x) { x.classList.toggle('sel', x === b); });
+        placeSticker();
+      };
+      box.appendChild(b);
+    });
+  }
+
+  function placeSticker(atCentre) {
+    var l = guardLayer();
+    if (!l) return;
+    var size = +byId('sticker-size').value || 24;
+    var anchor = (atCentre || !S.textAnchor)
+      ? { x: Math.max(0, Math.round((S.w - size) / 2)), y: Math.max(0, Math.round((S.h - size) / 2)) }
+      : S.textAnchor;
+    l.ctx.save();
+    l.ctx.globalAlpha = S.opacity;
+    l.ctx.font = size + 'px "Segoe UI Emoji", "Noto Color Emoji", "Apple Color Emoji", sans-serif';
+    l.ctx.textBaseline = 'top';
+    l.ctx.fillStyle = S.color;
+    l.ctx.fillText(S.sticker, anchor.x, anchor.y);
+    l.ctx.restore();
+    pushHistory(); render(); renderLayers();
+    toast('Sticker added');
+  }
+
+  /* ---------------------------------------------------------------------- 3D */
 
   function add3DText() {
     var l = guardLayer();
     if (!l) return;
-    var txt = byId('text-content').value;
-    if (!txt.trim()) { openTab('text'); toast('Type your text in the Text tab first'); return; }
-    var size = +byId('text-size').value || 12;
-    var mask = textMaskCanvas(txt, size, S.textAnchor || { x: 2, y: 2 });
-    var img = mask.getContext('2d').getImageData(0, 0, S.w, S.h);
-
+    if (!byId('text-content').value.trim()) {
+      openTab('text');
+      toast('Type your text in the Text tab first');
+      return;
+    }
     var depth = +byId('td-depth').value;
-    var ang = (+byId('td-angle').value) * Math.PI / 180;
-    var dx = Math.cos(ang), dy = Math.sin(ang);
-    var face = C.parseColor(S.color);
-    var sideRgb = C.parseColor(byId('td-side').value);
-    if (byId('td-shade').classList.contains('on')) sideRgb = C.shade(face, 0.55);
-
-    C.extrude(img, dx, dy, Math.max(1, depth), sideRgb, face);
-
-    var out = document.createElement('canvas');
-    out.width = S.w; out.height = S.h;
-    out.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(img.data), S.w, S.h), 0, 0);
-    l.ctx.drawImage(out, 0, 0);
+    S.text.depth = depth;
+    S.text.depthColor = byId('td-side').value;
+    if (byId('td-shade').classList.contains('on')) {
+      S.text.depthColor = C.rgbToHex.apply(null, C.shade(C.parseColor(S.color), 0.55));
+    }
+    syncTextControls();
+    var cv = buildTextCanvas();
+    if (!cv) return;
+    l.ctx.drawImage(cv, 0, 0);
     pushHistory(); render(); renderLayers();
     toast('3D text added');
   }
@@ -857,15 +1054,12 @@
     var got = readLayer();
     if (!got) return;
     var img = got.img;
-    var extrudeDepth = +byId('td-extrude').value;
-    if (extrudeDepth > 0) {
+    var depth = +byId('td-extrude').value;
+    if (depth > 0) {
       var ang = (+byId('td-img-angle').value) * Math.PI / 180;
-      C.extrude(img, Math.cos(ang), Math.sin(ang), extrudeDepth, C.shade(C.parseColor(S.color), 0.55), null);
+      C.extrude(img, Math.cos(ang), Math.sin(ang), depth, C.shade(C.parseColor(S.color), 0.55), null);
     }
-    C.perspective(img, {
-      rotateY: +byId('td-rotate-y').value,
-      tiltX: +byId('td-tilt-x').value
-    });
+    C.perspective(img, { rotateY: +byId('td-rotate-y').value, tiltX: +byId('td-tilt-x').value });
     commitLayer(got.layer, img);
     toast('3D applied');
   }
@@ -884,15 +1078,13 @@
     S.active = 0;
     S.sel = null; S.floating = null; S.preview = null; S.fxBase = null;
     S.history = []; S.hpos = -1;
-    byId('resize-w').value = w;
-    byId('resize-h').value = h;
     fitZoom(); render(); renderLayers(); updateStatus();
     pushHistory();
   }
 
   function projectObject() {
     return {
-      app: 'pixelstudio', version: 2,
+      app: 'pixelstudioedit', version: 3,
       w: S.w, h: S.h,
       palette: S.palette.slice(),
       layers: S.layers.map(function (l) {
@@ -905,7 +1097,7 @@
   }
 
   function loadProject(obj) {
-    if (!obj || !obj.layers || !obj.layers.length) { toast('Not a pixelstudio project'); return; }
+    if (!obj || !obj.layers || !obj.layers.length) { toast('Not a Pixel Studio Edit project'); return; }
     S.w = obj.w || 64; S.h = obj.h || 64;
     S.layers = obj.layers.map(function (o) {
       var l = mkLayer(o.name || 'Layer');
@@ -940,13 +1132,7 @@
     autosaveTimer = setTimeout(function () {
       try {
         localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(projectObject()));
-        var d = new Date();
-        byId('autosave-hint').textContent = 'Autosave: ' +
-          ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) +
-          ':' + ('0' + d.getSeconds()).slice(-2);
-      } catch (err) {
-        byId('autosave-hint').textContent = 'Autosave: unavailable (storage full)';
-      }
+      } catch (err) { /* storage full — nothing to do */ }
     }, 900);
   }
 
@@ -957,7 +1143,7 @@
     c.imageSmoothingEnabled = false;
     c.drawImage(composite(), 0, 0, cv.width, cv.height);
     cv.toBlob(function (blob) {
-      saveBlob(blob, filename || 'pixelstudio.png');
+      saveBlob(blob, filename || 'pixelstudioedit.png');
       toast('Exported ' + cv.width + '×' + cv.height + ' PNG');
     }, 'image/png');
   }
@@ -977,7 +1163,7 @@
       S.active++;
       URL.revokeObjectURL(url);
       pushHistory(); render(); renderLayers(); updateStatus();
-      toast('Imported — try Palette → Reduce for pixel art');
+      toast('Imported — try Effects → Reduce for pixel art');
     };
     im.onerror = function () { toast('Could not read that image'); URL.revokeObjectURL(url); };
     im.src = url;
@@ -1015,7 +1201,6 @@
     window.addEventListener('pointerup', onUp);
     screen.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
-    // tools
     $$('.tool[data-tool]').forEach(function (b) {
       b.onclick = function () {
         S.tool = b.dataset.tool;
@@ -1024,7 +1209,6 @@
       };
     });
 
-    // top bar
     on('btn-undo', 'click', undo);
     on('btn-redo', 'click', redo);
     on('btn-menu', 'click', function (e) {
@@ -1047,18 +1231,18 @@
       }
       setTimeout(fitZoom, 120);
     });
-    on('doc-chip', 'click', function () { openTab('canvas'); });
+    on('doc-chip', 'click', canvasDialog);
 
-    // menu items
     on('m-new', 'click', function () { byId('menu-pop').hidden = true; newDocDialog(); });
     on('m-open', 'click', function () { byId('menu-pop').hidden = true; byId('file-open').click(); });
     on('m-save', 'click', function () {
       byId('menu-pop').hidden = true;
-      saveBlob(new Blob([JSON.stringify(projectObject())], { type: 'application/json' }), 'pixelstudio-project.json');
+      saveBlob(new Blob([JSON.stringify(projectObject())], { type: 'application/json' }), 'pixelstudioedit-project.json');
       toast('Project saved');
     });
     on('m-import', 'click', function () { byId('menu-pop').hidden = true; byId('file-import').click(); });
     on('m-export', 'click', function () { byId('menu-pop').hidden = true; exportDialog(); });
+    on('m-canvas', 'click', function () { byId('menu-pop').hidden = true; canvasDialog(); });
     on('m-restore', 'click', function () {
       byId('menu-pop').hidden = true;
       var raw = localStorage.getItem(AUTOSAVE_KEY);
@@ -1078,10 +1262,8 @@
         'Right-click draws with the secondary colour.</div>', function () {}, 'Close');
     });
 
-    // tabs
     $$('#tabs .tab').forEach(function (b) { b.onclick = function () { toggleTab(b.dataset.tab); }; });
 
-    // quickbar
     on('q-brush', 'input', function () {
       S.brush = +this.value;
       byId('q-brush-val').textContent = this.value;
@@ -1090,19 +1272,9 @@
       S.opacity = +this.value / 100;
       byId('q-opacity-val').textContent = this.value;
     });
-    on('q-mirror-x', 'click', function () {
-      S.symX = !S.symX;
-      this.classList.toggle('on', S.symX);
-    });
-    on('q-mirror-y', 'click', function () {
-      S.symY = !S.symY;
-      this.classList.toggle('on', S.symY);
-    });
-    on('q-grid', 'click', function () {
-      S.showGrid = !S.showGrid;
-      this.classList.toggle('on', S.showGrid);
-      render();
-    });
+    on('q-mirror-x', 'click', function () { S.symX = !S.symX; this.classList.toggle('on', S.symX); });
+    on('q-mirror-y', 'click', function () { S.symY = !S.symY; this.classList.toggle('on', S.symY); });
+    on('q-grid', 'click', function () { S.showGrid = !S.showGrid; this.classList.toggle('on', S.showGrid); render(); });
     on('zoom-in', 'click', function () { setZoom(effZoom() + 1); });
     on('zoom-out', 'click', function () { setZoom(effZoom() - 1); });
     on('zoom-fit', 'click', fitZoom);
@@ -1115,13 +1287,15 @@
     // colour
     on('hex-input', 'change', function () { setColor(this.value); });
     on('color-input', 'input', function () { setColor(this.value); });
-    on('swap-colors', 'click', function () { swapColours(); });
-    on('rail-colours', 'click', function () { swapColours(); });
+    on('swap-colors', 'click', swapColours);
+    on('rail-colours', 'click', swapColours);
     on('palette-select', 'change', function () { loadPalette(this.value); });
     on('add-swatch', 'click', function () {
       if (S.palette.indexOf(S.color) === -1) { S.palette.push(S.color); renderPalette(); toast('Added to palette'); }
     });
     on('reset-palette', 'click', function () { loadPalette(byId('palette-select').value); });
+    on('bg-colour', 'click', function () { fillBackground('colour'); });
+    on('bg-gradient', 'click', function () { fillBackground('gradient'); });
 
     // layers
     on('layer-add', 'click', addLayer);
@@ -1140,6 +1314,38 @@
     });
     on('layer-opacity', 'change', function () { pushHistory(); renderLayers(); });
 
+    // text styling
+    on('text-bold', 'click', function () { S.text.bold = !S.text.bold; this.classList.toggle('on', S.text.bold); });
+    on('text-italic', 'click', function () { S.text.italic = !S.text.italic; this.classList.toggle('on', S.text.italic); });
+    on('text-fill', 'click', function () {
+      S.text.gradient = !S.text.gradient;
+      this.classList.toggle('on', S.text.gradient);
+      byId('grad-row').hidden = !S.text.gradient;
+    });
+    on('text-reflection', 'click', function () { S.text.reflection = !S.text.reflection; this.classList.toggle('on', S.text.reflection); });
+    on('text-emboss', 'click', function () { S.text.emboss = !S.text.emboss; this.classList.toggle('on', S.text.emboss); });
+    on('text-add', 'click', addText);
+    $$('[data-style]').forEach(function (b) { b.onclick = function () { applyStylePreset(b.dataset.style); }; });
+
+    [['text-size', 'text-size-val'], ['text-stroke', 'text-stroke-val'], ['text-shadow', 'text-shadow-val'],
+     ['text-curve', 'text-curve-val'], ['text-depth', 'text-depth-val'], ['sticker-size', 'sticker-size-val'],
+     ['fx-levels', 'fx-levels-val'], ['fx-blur', 'fx-blur-val'], ['fx-noise', 'fx-noise-val'],
+     ['outline-width', 'outline-width-val'], ['shadow-dx', 'shadow-dx-val'], ['shadow-dy', 'shadow-dy-val'],
+     ['bg-tolerance', 'bg-tolerance-val'], ['td-depth', 'td-depth-val'], ['td-angle', 'td-angle-val'],
+     ['td-rotate-y', 'td-rotate-y-val'], ['td-tilt-x', 'td-tilt-x-val'], ['td-extrude', 'td-extrude-val'],
+     ['td-img-angle', 'td-img-angle-val']].forEach(function (pair) {
+      var el = byId(pair[0]);
+      if (!el) return;
+      el.addEventListener('input', function () { byId(pair[1]).textContent = el.value; });
+    });
+    on('text-stroke', 'input', function () { S.text.stroke = +this.value; });
+    on('text-shadow', 'input', function () { S.text.shadow = +this.value; });
+    on('text-curve', 'input', function () { S.text.curve = +this.value; });
+    on('text-depth', 'input', function () { S.text.depth = +this.value; });
+    on('text-stroke-color', 'input', function () { S.text.strokeColor = this.value; });
+    on('text-shadow-color', 'input', function () { S.text.shadowColor = this.value; });
+    on('text-depth-color', 'input', function () { S.text.depthColor = this.value; });
+
     // adjust sliders
     ['fx-brightness', 'fx-contrast', 'fx-saturation', 'fx-hue'].forEach(function (id) {
       var el = byId(id);
@@ -1148,10 +1354,7 @@
         byId(id + '-val').textContent = el.value;
         applyAdjust(true);
       });
-      el.addEventListener('change', function () {
-        applyAdjust(false);
-        S.fxBase = null;
-      });
+      el.addEventListener('change', function () { applyAdjust(false); S.fxBase = null; });
     });
     on('fx-apply', 'click', function () {
       if (S.fxBase) { pushHistory(); S.fxBase = null; toast('Adjustments applied'); }
@@ -1159,38 +1362,16 @@
     });
     on('fx-reset', 'click', function () { resetAdjust(); });
 
-    // filters
     $$('[data-fx]').forEach(function (b) { b.onclick = function () { runEffect(b.dataset.fx); }; });
-    [['fx-levels', 'fx-levels-val'], ['fx-blur', 'fx-blur-val'], ['fx-noise', 'fx-noise-val'],
-     ['outline-width', 'outline-width-val'], ['shadow-dx', 'shadow-dx-val'], ['shadow-dy', 'shadow-dy-val'],
-     ['text-size', 'text-size-val'], ['td-depth', 'td-depth-val'], ['td-angle', 'td-angle-val'],
-     ['td-rotate-y', 'td-rotate-y-val'], ['td-tilt-x', 'td-tilt-x-val'], ['td-extrude', 'td-extrude-val'],
-     ['td-img-angle', 'td-img-angle-val']].forEach(function (pair) {
-      var el = byId(pair[0]);
-      if (el) el.addEventListener('input', function () { byId(pair[1]).textContent = el.value; });
-    });
-
-    // palette & dither
     on('do-quantize', 'click', function () { applyPaletteToLayer('quantize'); });
     on('do-dither-fs', 'click', function () { applyPaletteToLayer('fs'); });
     on('do-dither-bayer', 'click', function () { applyPaletteToLayer('bayer'); });
+    on('bg-remove-colour', 'click', function () { removeBackground(false); });
+    on('bg-remove-white', 'click', function () { removeBackground(true); });
 
-    // text
-    on('text-add', 'click', addText);
-    on('text-bold', 'click', function () {
-      S.text.bold = !S.text.bold;
-      this.classList.toggle('on', S.text.bold);
-    });
-    on('text-italic', 'click', function () {
-      S.text.italic = !S.text.italic;
-      this.classList.toggle('on', S.text.italic);
-    });
-    on('text-align', 'click', function () {
-      S.fillShapes = !S.fillShapes;
-      this.classList.toggle('on', S.fillShapes);
-      this.textContent = S.fillShapes ? 'Filled' : 'Left';
-      toast(S.fillShapes ? 'Shapes will be filled' : 'Shapes will be outlines');
-    });
+    // stickers
+    on('sticker-place', 'click', function () { placeSticker(true); });
+    on('sticker-clear', 'click', function () { S.textAnchor = null; toast('Anchor cleared — stickers go to the centre'); });
 
     // 3D
     $$('#mode-3d .seg').forEach(function (b) { b.onclick = function () { set3DMode(b.dataset.mode); }; });
@@ -1216,23 +1397,6 @@
       };
     });
 
-    // canvas
-    on('do-resize', 'click', function () {
-      resizeDoc(+byId('resize-w').value, +byId('resize-h').value);
-      toast('Canvas ' + S.w + '×' + S.h);
-    });
-    on('do-new', 'click', newDocDialog);
-    on('doc-fliph', 'click', function () { transformDoc('flip-h'); });
-    on('doc-flipv', 'click', function () { transformDoc('flip-v'); });
-    on('doc-rot-cw', 'click', function () { transformDoc('rot-cw'); });
-    on('doc-rot-ccw', 'click', function () { transformDoc('rot-ccw'); });
-    on('btn-restore', 'click', function () {
-      var raw = localStorage.getItem(AUTOSAVE_KEY);
-      if (!raw) { toast('No autosave found'); return; }
-      try { loadProject(JSON.parse(raw)); } catch (err) { toast('Autosave is unreadable'); }
-    });
-
-    // files
     on('file-import', 'change', function (e) {
       var f = e.target.files[0];
       if (f) importImage(f);
@@ -1247,20 +1411,6 @@
       };
       fr.readAsText(f);
       e.target.value = '';
-    });
-
-    // presets
-    var presets = byId('presets-row');
-    [16, 32, 48, 64, 128, 256, 512].forEach(function (v) {
-      var b = document.createElement('button');
-      b.className = 'btn';
-      b.textContent = v + '²';
-      b.onclick = function () {
-        byId('resize-w').value = v;
-        byId('resize-h').value = v;
-        resizeDoc(v, v);
-      };
-      presets.appendChild(b);
     });
 
     window.addEventListener('keydown', onKeyDown);
@@ -1280,13 +1430,43 @@
     modal('New document',
       '<div class="row"><label>Width</label><input type="number" id="dlg-w" min="1" max="1024" value="' + S.w + '"></div>' +
       '<div class="row"><label>Height</label><input type="number" id="dlg-h" min="1" max="1024" value="' + S.h + '"></div>' +
-      '<p class="hint">Starts a fresh document with one empty layer.</p>',
+      '<div class="presets-row" id="dlg-presets">' +
+      [16, 32, 48, 64, 128, 256, 512].map(function (v) { return '<button class="btn" data-p="' + v + '">' + v + '²</button>'; }).join('') +
+      '</div><p class="hint">Starts a fresh document with one empty layer.</p>',
       function (ov) {
         var w = Math.max(1, Math.min(1024, +$('#dlg-w', ov).value || 64));
         var h = Math.max(1, Math.min(1024, +$('#dlg-h', ov).value || 64));
         newDoc(w, h);
         toast('New ' + w + '×' + h + ' document');
       }, 'Create');
+    $$('#dlg-presets button').forEach(function (b) {
+      b.onclick = function () { $('#dlg-w').value = b.dataset.p; $('#dlg-h').value = b.dataset.p; };
+    });
+  }
+
+  function canvasDialog() {
+    modal('Canvas',
+      '<div class="row"><label>Width</label><input type="number" id="dlg-w" min="1" max="1024" value="' + S.w + '"></div>' +
+      '<div class="row"><label>Height</label><input type="number" id="dlg-h" min="1" max="1024" value="' + S.h + '"></div>' +
+      '<div class="presets-row" id="dlg-presets">' +
+      [16, 32, 48, 64, 128, 256, 512].map(function (v) { return '<button class="btn" data-p="' + v + '">' + v + '²</button>'; }).join('') +
+      '</div>' +
+      '<div class="grid2"><button class="btn" id="dlg-fliph">Flip H</button><button class="btn" id="dlg-flipv">Flip V</button>' +
+      '<button class="btn" id="dlg-rot-cw">Rotate ⟳</button><button class="btn" id="dlg-rot-ccw">Rotate ⟲</button></div>' +
+      '<p class="hint">Resize scales every layer with nearest-neighbour sampling.</p>',
+      function (ov) {
+        var w = Math.max(1, Math.min(1024, +$('#dlg-w', ov).value || S.w));
+        var h = Math.max(1, Math.min(1024, +$('#dlg-h', ov).value || S.h));
+        resizeDoc(w, h);
+        toast('Canvas ' + S.w + '×' + S.h);
+      }, 'Resize');
+    $$('#dlg-presets button').forEach(function (b) {
+      b.onclick = function () { $('#dlg-w').value = b.dataset.p; $('#dlg-h').value = b.dataset.p; };
+    });
+    $('#dlg-fliph').onclick = function () { transformDoc('flip-h'); };
+    $('#dlg-flipv').onclick = function () { transformDoc('flip-v'); };
+    $('#dlg-rot-cw').onclick = function () { transformDoc('rot-cw'); };
+    $('#dlg-rot-ccw').onclick = function () { transformDoc('rot-ccw'); };
   }
 
   function exportDialog() {
@@ -1295,11 +1475,11 @@
       [1, 2, 4, 8, 10, 16, 20].map(function (s) {
         return '<option value="' + s + '"' + (s === 8 ? ' selected' : '') + '>' + s + '× (' + (S.w * s) + '×' + (S.h * s) + ')</option>';
       }).join('') + '</select></div>' +
-      '<div class="row"><label>Name</label><input type="text" id="dlg-name" value="pixelstudio"></div>' +
+      '<div class="row"><label>Name</label><input type="text" id="dlg-name" value="pixelstudioedit"></div>' +
       '<p class="hint">Nearest-neighbour scaling keeps the pixels sharp.</p>',
       function (ov) {
         var s = +$('#dlg-scale', ov).value || 1;
-        var name = ($('#dlg-name', ov).value || 'pixelstudio').replace(/[^\w\-]+/g, '-');
+        var name = ($('#dlg-name', ov).value || 'pixelstudioedit').replace(/[^\w\-]+/g, '-');
         exportPNG(s, name + '.png');
       }, 'Download');
   }
@@ -1321,7 +1501,7 @@
       if (k === 'y') { e.preventDefault(); redo(); return; }
       if (k === 's') {
         e.preventDefault();
-        saveBlob(new Blob([JSON.stringify(projectObject())], { type: 'application/json' }), 'pixelstudio-project.json');
+        saveBlob(new Blob([JSON.stringify(projectObject())], { type: 'application/json' }), 'pixelstudioedit-project.json');
         return;
       }
       if (k === 'a') { e.preventDefault(); S.sel = { x: 0, y: 0, w: S.w, h: S.h }; render(); return; }
@@ -1353,9 +1533,11 @@
     setColor('#1b1b1f');
     setColor('#ffffff', true);
     set3DMode('text');
+    renderStickerGrid();
+    syncTextControls();
     newDoc(64, 64);
     S.ready = true;
-    if (window.matchMedia('(min-width: 881px)').matches) openTab('colour');
+    if (window.matchMedia('(min-width: 881px)').matches) openTab('text');
   }
 
   /* Small read-only hook so the automated UI tests can inspect pixels. */
@@ -1363,7 +1545,8 @@
     get state() { return S; },
     composite: composite,
     activeLayer: activeLayer,
-    render: render
+    render: render,
+    buildTextCanvas: buildTextCanvas
   };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
