@@ -544,11 +544,111 @@
     return img;
   }
 
+  /* --------------------------------------------------------- photo utilities */
+
+  /* Unsharp mask: sharpens edges. amount 0..100 */
+  function sharpen(img, amount) {
+    var w = img.width, h = img.height;
+    var src = clone(img), s = src.data, d = img.data;
+    var a = clamp((amount == null ? 40 : amount) / 100, 0, 1.5);
+    var k = [0, -a, 0, -a, 1 + 4 * a, -a, 0, -a, 0];
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var i = (y * w + x) * 4;
+        if (s[i + 3] === 0) continue;
+        var acc = [0, 0, 0], n = 0;
+        for (var oy = -1; oy <= 1; oy++) {
+          for (var ox = -1; ox <= 1; ox++) {
+            var nx = clamp(x + ox, 0, w - 1), ny = clamp(y + oy, 0, h - 1);
+            var wgt = k[(oy + 1) * 3 + (ox + 1)];
+            var j = (ny * w + nx) * 4;
+            acc[0] += s[j] * wgt; acc[1] += s[j + 1] * wgt; acc[2] += s[j + 2] * wgt;
+            n++;
+          }
+        }
+        d[i] = clamp(acc[0], 0, 255);
+        d[i + 1] = clamp(acc[1], 0, 255);
+        d[i + 2] = clamp(acc[2], 0, 255);
+      }
+    }
+    return img;
+  }
+
+  /* Warm brown monochrome. */
+  function sepia(img) {
+    var d = img.data;
+    for (var i = 0; i < d.length; i += 4) {
+      if (d[i + 3] === 0) continue;
+      var r = d[i], g = d[i + 1], b = d[i + 2];
+      d[i] = clamp(0.393 * r + 0.769 * g + 0.189 * b, 0, 255);
+      d[i + 1] = clamp(0.349 * r + 0.686 * g + 0.168 * b, 0, 255);
+      d[i + 2] = clamp(0.272 * r + 0.534 * g + 0.131 * b, 0, 255);
+    }
+    return img;
+  }
+
+  /* Most common colours, ignoring near-transparent pixels. Returns hex list. */
+  function dominantColors(img, count) {
+    var d = img.data, n = count || 8;
+    var buckets = {};
+    for (var i = 0; i < d.length; i += 4) {
+      if (d[i + 3] < 32) continue;
+      var key = (d[i] >> 4) + ',' + (d[i + 1] >> 4) + ',' + (d[i + 2] >> 4);
+      if (!buckets[key]) buckets[key] = { n: 0, r: 0, g: 0, b: 0 };
+      var b = buckets[key];
+      b.n++; b.r += d[i]; b.g += d[i + 1]; b.b += d[i + 2];
+    }
+    return Object.keys(buckets)
+      .map(function (k) {
+        var b = buckets[k];
+        return { hex: rgbToHex(b.r / b.n, b.g / b.n, b.b / b.n), n: b.n };
+      })
+      .sort(function (a, b) { return b.n - a.n; })
+      .slice(0, n)
+      .map(function (o) { return o.hex; });
+  }
+
+  /* Guesses the background colour from the four corners, then keys it out. */
+  function autoKey(img, tolerance) {
+    var w = img.width, h = img.height;
+    var corners = [
+      getPixel(img, 0, 0), getPixel(img, w - 1, 0),
+      getPixel(img, 0, h - 1), getPixel(img, w - 1, h - 1)
+    ].filter(function (c) { return c[3] > 0; });
+    if (!corners.length) return img;
+    var avg = [0, 0, 0];
+    corners.forEach(function (c) { avg[0] += c[0]; avg[1] += c[1]; avg[2] += c[2]; });
+    avg = avg.map(function (v) { return v / corners.length; });
+    return chromaKey(img, avg, tolerance == null ? 28 : tolerance);
+  }
+
+  /* Nearest-neighbour resample of an ImageData-like object. */
+  function resample(img, nw, nh) {
+    var out = blank(nw, nh);
+    for (var y = 0; y < nh; y++) {
+      var sy = Math.min(img.height - 1, Math.floor(y * img.height / nh));
+      for (var x = 0; x < nw; x++) {
+        var sx = Math.min(img.width - 1, Math.floor(x * img.width / nw));
+        var si = (sy * img.width + sx) * 4, di = (y * nw + x) * 4;
+        out.data[di] = img.data[si];
+        out.data[di + 1] = img.data[si + 1];
+        out.data[di + 2] = img.data[si + 2];
+        out.data[di + 3] = img.data[si + 3];
+      }
+    }
+    return out;
+  }
+
   var api = {
     clamp: clamp,
     extrude: extrude,
     perspective: perspective,
     vignette: vignette,
+    sharpen: sharpen,
+    sepia: sepia,
+    dominantColors: dominantColors,
+    autoKey: autoKey,
+    resample: resample,
     stripes: stripes,
     chromaKey: chromaKey,
     shade: shade,
