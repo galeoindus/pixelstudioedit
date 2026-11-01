@@ -3,8 +3,8 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>pixelstudio — pixel art editor</title>
-<meta name="description" content="pixelstudio is a free, open-source pixel art editor in your browser: layers, shapes, text, 3D text, palettes, dithering, effects and PNG export.">
+<title>Pixel Studio Edit — pixel art &amp; text editor</title>
+<meta name="description" content="Pixel Studio Edit is a free, open-source pixel art and text editor in your browser: 3D text, gradients, strokes, shadows, stickers, layers, palettes, dithering and PNG export.">
 <meta name="theme-color" content="#12141a">
 <link rel="stylesheet" href="css/style.css">
 <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 16 16'><rect width='16' height='16' fill='%2312141a'/><rect x='3' y='3' width='5' height='5' fill='%236ee7b7'/><rect x='8' y='8' width='5' height='5' fill='%2338bdf8'/></svg>">
@@ -13,8 +13,8 @@
 <div class="app" id="app">
 
   <header class="topbar">
-    <div class="brand">pixel<span>studio</span></div>
-    <button class="chip" id="doc-chip" title="Canvas size — click to resize">64 × 64</button>
+    <div class="brand">pixel<span>studio</span> edit</div>
+    <button class="chip" id="doc-chip" title="Canvas size — click to change">64 × 64</button>
     <div class="spacer"></div>
     <button class="icon-btn" id="btn-undo" title="Undo (Ctrl+Z)">↶</button>
     <button class="icon-btn" id="btn-redo" title="Redo (Ctrl+Shift+Z)">↷</button>
@@ -29,6 +29,7 @@
     <button class="menu-item" id="m-import">Import image…</button>
     <button class="menu-item accent" id="m-export">Export PNG…</button>
     <div class="menu-sep"></div>
+    <button class="menu-item" id="m-canvas">Canvas size &amp; transform…</button>
     <button class="menu-item" id="m-restore">Restore autosave</button>
     <button class="menu-item" id="m-help">Keyboard shortcuts</button>
   </div>
@@ -99,22 +100,91 @@
       <div class="statusbar">
         <span id="status-pos">0, 0</span>
         <span id="status-layer">Layer 1</span>
+        <span class="status-hint">Tip: tap the canvas with the Text tool to set where text starts</span>
       </div>
     </section>
 
     <aside class="side" id="side">
       <div class="tabs" id="tabs">
-        <button class="tab active" data-tab="colour">Colour</button>
+        <button class="tab active" data-tab="text">Text</button>
+        <button class="tab" data-tab="stickers">Stickers</button>
+        <button class="tab" data-tab="colour">Colour</button>
         <button class="tab" data-tab="layers">Layers</button>
         <button class="tab" data-tab="effects">Effects</button>
-        <button class="tab" data-tab="text">Text</button>
         <button class="tab" data-tab="3d">3D</button>
-        <button class="tab" data-tab="canvas">Canvas</button>
       </div>
 
       <div class="sheet-body" id="sheet-body">
 
-        <section class="pane active" data-pane="colour">
+        <!-- ------------------------------------------------------------ TEXT -->
+        <section class="pane active" data-pane="text">
+          <textarea id="text-content" placeholder="Type your text…" rows="2"></textarea>
+          <div class="row"><label>Font</label>
+            <select id="text-font">
+              <optgroup label="Pixel &amp; arcade">
+                <option value="'Press Start 2P', 'Courier New', monospace">Arcade</option>
+                <option value="'Courier New', monospace">Terminal</option>
+                <option value="'Lucida Console', monospace">Console</option>
+              </optgroup>
+              <optgroup label="Bold &amp; display">
+                <option value="Impact, 'Arial Black', sans-serif">Impact</option>
+                <option value="'Arial Black', Impact, sans-serif">Black</option>
+                <option value="Georgia, 'Times New Roman', serif">Serif display</option>
+                <option value="'Trebuchet MS', sans-serif">Trebuchet</option>
+                <option value="Verdana, Geneva, sans-serif">Verdana</option>
+              </optgroup>
+              <optgroup label="Handwriting &amp; fun">
+                <option value="'Comic Sans MS', 'Segoe Print', cursive">Comic</option>
+                <option value="'Brush Script MT', cursive">Brush script</option>
+                <option value="'Segoe Print', 'Comic Sans MS', cursive">Handwriting</option>
+              </optgroup>
+              <optgroup label="Clean">
+                <option value="Arial, Helvetica, sans-serif">Arial</option>
+                <option value="'Segoe UI', system-ui, sans-serif">System UI</option>
+                <option value="'Times New Roman', serif">Times</option>
+                <option value="'Courier New', monospace">Courier</option>
+              </optgroup>
+            </select>
+          </div>
+          <div class="row"><label>Size</label><input type="range" id="text-size" min="4" max="64" value="12"><b id="text-size-val">12</b></div>
+          <div class="row tight">
+            <button class="toggle on" id="text-bold">Bold</button>
+            <button class="toggle" id="text-italic">Italic</button>
+            <button class="toggle" id="text-fill">Gradient</button>
+          </div>
+          <div class="row" id="grad-row" hidden><label>2nd colour</label><input type="color" id="text-grad2" value="#38bdf8"><span class="hint-inline">gradient end</span></div>
+
+          <h4>Style</h4>
+          <div class="row"><label>Stroke</label><input type="range" id="text-stroke" min="0" max="8" value="0"><b id="text-stroke-val">0</b><input type="color" id="text-stroke-color" value="#000000"></div>
+          <div class="row"><label>Shadow</label><input type="range" id="text-shadow" min="0" max="12" value="0"><b id="text-shadow-val">0</b><input type="color" id="text-shadow-color" value="#000000"></div>
+          <div class="row"><label>Curve</label><input type="range" id="text-curve" min="-100" max="100" value="0"><b id="text-curve-val">0</b></div>
+          <div class="row"><label>Depth</label><input type="range" id="text-depth" min="0" max="24" value="0"><b id="text-depth-val">0</b><input type="color" id="text-depth-color" value="#2b2b3a"></div>
+          <div class="row tight">
+            <button class="toggle" id="text-reflection">Reflection</button>
+            <button class="toggle" id="text-emboss">Emboss</button>
+          </div>
+          <div class="row tight">
+            <button class="btn" data-style="plain">Plain</button>
+            <button class="btn" data-style="poster">Poster</button>
+            <button class="btn" data-style="neon">Neon</button>
+          </div>
+          <button class="btn primary" id="text-add">Add text to layer</button>
+          <p class="hint">Pick the Text tool (T) and tap the canvas to choose where the text starts — otherwise it lands at the top-left.</p>
+        </section>
+
+        <!-- -------------------------------------------------------- STICKERS -->
+        <section class="pane" data-pane="stickers">
+          <div class="row"><label>Size</label><input type="range" id="sticker-size" min="6" max="64" value="24"><b id="sticker-size-val">24</b></div>
+          <div class="sticker-grid" id="sticker-grid"></div>
+          <div class="row tight">
+            <button class="btn primary" id="sticker-place">Place at centre</button>
+            <button class="btn" id="sticker-clear">Clear field</button>
+          </div>
+          <p class="hint">Shapes use your primary colour; emoji keep their own colours. The Text tool anchor decides where a sticker lands.</p>
+        </section>
+
+        <!-- ---------------------------------------------------------- COLOUR -->
+        <section class="pane" data-pane="colour">
           <div class="colour-head">
             <button class="big-swatch" id="sw-primary" title="Primary colour"><i></i></button>
             <button class="big-swatch small" id="sw-secondary" title="Secondary colour"><i></i></button>
@@ -132,9 +202,15 @@
             <button class="btn" id="add-swatch">Add colour</button>
             <button class="btn" id="reset-palette">Reset</button>
           </div>
-          <p class="hint">Tap a swatch to use it, long-press (or right-click) to remove it. Shift-click sets the secondary colour.</p>
+          <h4>Background</h4>
+          <div class="row tight">
+            <button class="btn" id="bg-colour">Fill colour</button>
+            <button class="btn" id="bg-gradient">Fill gradient</button>
+          </div>
+          <p class="hint">Tap a swatch to use it, right-click (or long-press) to remove it. Shift-click sets the secondary colour.</p>
         </section>
 
+        <!-- ---------------------------------------------------------- LAYERS -->
         <section class="pane" data-pane="layers">
           <div class="layers" id="layers"></div>
           <div class="row tight">
@@ -152,6 +228,7 @@
           <p class="hint">Tap a layer to make it active, tap the eye to hide it, tap the lock to protect it, double-tap the name to rename.</p>
         </section>
 
+        <!-- --------------------------------------------------------- EFFECTS -->
         <section class="pane" data-pane="effects">
           <h4>Adjust <span class="hint-inline">live preview</span></h4>
           <div class="row"><label>Bright</label><input type="range" id="fx-brightness" min="-100" max="100" value="0"><b id="fx-brightness-val">0</b></div>
@@ -171,15 +248,17 @@
             <button class="btn" data-fx="threshold">Threshold</button>
             <button class="btn" data-fx="blur">Blur</button>
             <button class="btn" data-fx="noise">Noise</button>
+            <button class="btn" data-fx="vignette">Vignette</button>
+            <button class="btn" data-fx="stripes">Stripes</button>
+            <button class="btn" data-fx="outline">Outline</button>
           </div>
           <div class="row"><label>Levels</label><input type="range" id="fx-levels" min="2" max="16" value="4"><b id="fx-levels-val">4</b></div>
           <div class="row"><label>Blur px</label><input type="range" id="fx-blur" min="1" max="6" value="1"><b id="fx-blur-val">1</b></div>
           <div class="row"><label>Noise</label><input type="range" id="fx-noise" min="1" max="80" value="24"><b id="fx-noise-val">24</b></div>
+          <div class="row"><label>Outline</label><input type="range" id="outline-width" min="1" max="6" value="1"><b id="outline-width-val">1</b><input type="color" id="outline-color" value="#000000"></div>
 
-          <h4>Outline &amp; shadow</h4>
-          <div class="row"><label>Width</label><input type="range" id="outline-width" min="1" max="6" value="1"><b id="outline-width-val">1</b><input type="color" id="outline-color" value="#000000"></div>
-          <button class="btn" data-fx="outline">Add outline</button>
-          <div class="row"><label>Offset</label><input type="range" id="shadow-dx" min="-12" max="12" value="2"><b id="shadow-dx-val">2</b><input type="range" id="shadow-dy" min="-12" max="12" value="2"><b id="shadow-dy-val">2</b></div>
+          <h4>Shadow</h4>
+          <div class="row"><label>X</label><input type="range" id="shadow-dx" min="-12" max="12" value="2"><b id="shadow-dx-val">2</b><label>Y</label><input type="range" id="shadow-dy" min="-12" max="12" value="2"><b id="shadow-dy-val">2</b></div>
           <div class="row"><label>Colour</label><input type="color" id="shadow-color" value="#000000"><button class="btn" data-fx="shadow">Drop shadow</button></div>
 
           <h4>Palette &amp; dither</h4>
@@ -189,31 +268,17 @@
             <button class="btn" id="do-dither-fs">Floyd</button>
             <button class="btn" id="do-dither-bayer">Bayer</button>
           </div>
-          <p class="hint">Reducing to a palette turns photos into clean pixel art. Dithering keeps gradients by mixing palette colours.</p>
-        </section>
 
-        <section class="pane" data-pane="text">
-          <textarea id="text-content" placeholder="Type your text…" rows="3"></textarea>
-          <div class="row"><label>Font</label>
-            <select id="text-font">
-              <option value="'Press Start 2P', monospace">Arcade / pixel</option>
-              <option value="'Courier New', monospace">Monospace</option>
-              <option value="Impact, sans-serif">Impact</option>
-              <option value="Georgia, serif">Serif</option>
-              <option value="Arial, sans-serif">Sans</option>
-              <option value="'Comic Sans MS', cursive">Handwriting</option>
-            </select>
-          </div>
-          <div class="row"><label>Size</label><input type="range" id="text-size" min="4" max="64" value="12"><b id="text-size-val">12</b></div>
+          <h4>Remove background</h4>
+          <div class="row"><label>Tolerance</label><input type="range" id="bg-tolerance" min="0" max="120" value="24"><b id="bg-tolerance-val">24</b></div>
           <div class="row tight">
-            <button class="toggle on" id="text-bold">Bold</button>
-            <button class="toggle" id="text-italic">Italic</button>
-            <button class="toggle" id="text-align">Left</button>
+            <button class="btn" id="bg-remove-colour">Remove primary</button>
+            <button class="btn" id="bg-remove-white">Remove white</button>
           </div>
-          <button class="btn primary" id="text-add">Add text to layer</button>
-          <p class="hint">Pick the Text tool (T) and tap the canvas to choose where the text starts — or it lands at the top-left.</p>
+          <p class="hint">Reducing to a palette turns photos into clean pixel art; dithering keeps gradients by mixing palette colours.</p>
         </section>
 
+        <!-- --------------------------------------------------------------- 3D -->
         <section class="pane" data-pane="3d">
           <div class="segmented" id="mode-3d">
             <button class="seg active" data-mode="text">3D text</button>
@@ -221,7 +286,7 @@
           </div>
 
           <div class="mode-block" data-block="text">
-            <p class="hint">Uses the text from the Text tab, extruded into a solid 3D block.</p>
+            <p class="hint">Extrudes the text from the Text tab into a solid block.</p>
             <div class="row"><label>Depth</label><input type="range" id="td-depth" min="1" max="24" value="6"><b id="td-depth-val">6</b></div>
             <div class="row"><label>Angle</label><input type="range" id="td-angle" min="0" max="359" value="225"><b id="td-angle-val">225</b></div>
             <div class="row"><label>Side</label><input type="color" id="td-side" value="#2b2b3a"><button class="toggle on" id="td-shade">Shading</button></div>
@@ -234,7 +299,7 @@
           </div>
 
           <div class="mode-block" data-block="image" hidden>
-            <p class="hint">Tilts and extrudes the active layer — great for giving sprites depth.</p>
+            <p class="hint">Turns, tilts and extrudes the active layer — great for giving sprites depth.</p>
             <div class="row"><label>Turn</label><input type="range" id="td-rotate-y" min="-60" max="60" value="0"><b id="td-rotate-y-val">0</b></div>
             <div class="row"><label>Tilt</label><input type="range" id="td-tilt-x" min="-45" max="45" value="0"><b id="td-tilt-x-val">0</b></div>
             <div class="row"><label>Extrude</label><input type="range" id="td-extrude" min="0" max="24" value="0"><b id="td-extrude-val">0</b></div>
@@ -242,24 +307,6 @@
             <button class="btn primary" id="td-apply">Apply to layer</button>
             <button class="btn" id="td-reset">Reset sliders</button>
           </div>
-        </section>
-
-        <section class="pane" data-pane="canvas">
-          <div class="row"><label>Size</label><input type="number" id="resize-w" min="1" max="1024" value="64"><span class="x">×</span><input type="number" id="resize-h" min="1" max="1024" value="64"></div>
-          <div class="presets-row" id="presets-row"></div>
-          <div class="row tight">
-            <button class="btn primary" id="do-resize">Resize</button>
-            <button class="btn" id="do-new">New</button>
-          </div>
-          <h4>Transform</h4>
-          <div class="grid2">
-            <button class="btn" id="doc-fliph">Flip H</button>
-            <button class="btn" id="doc-flipv">Flip V</button>
-            <button class="btn" id="doc-rot-cw">Rotate ⟳</button>
-            <button class="btn" id="doc-rot-ccw">Rotate ⟲</button>
-          </div>
-          <p class="hint" id="autosave-hint">Autosave: idle</p>
-          <button class="btn" id="btn-restore">Restore autosave</button>
         </section>
 
       </div>
