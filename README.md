@@ -17,13 +17,15 @@ Everything is organised around one canvas:
 - **Left rail** — the ten tools, each with its keyboard letter. The colour chip at the bottom swaps primary/secondary.
 - **Quick bar** — brush size, opacity, mirror X/Y and the pixel grid, always within reach while drawing.
 - **Right panel** (bottom sheet on phones) — seven tabs: **Text, Sticker, Photo, Colour, Layers, FX, 3D**. One panel at a time, so nothing is buried in a collapsed accordion.
-- **Canvas chip** in the top bar — size presets, resize, flip and rotate.
+- **Canvas chip** in the top bar — size, resize, flip and rotate. **New document** offers banner and social templates (Instagram 1080, Story 1080×1920, YouTube 1280×720, Banner 1500×500, Meme 800×600, Poster 1080×1350).
 - **Full-screen canvas** — the ⛶ button hides every panel for distraction-free drawing (and asks the browser for real full screen).
 - **File menu** — New, Open, Save, Import image, Export PNG, Canvas, Restore autosave, Shortcuts.
 
 ## Features
 
 **Text**
+- **Tap the canvas with the Text tool and a floating text box opens right there** — type, press Enter, done
+- **Use your own font**: drop in any `.ttf`, `.otf`, `.woff` or `.woff2` file and it appears in the font list
 - Multiple lines, **16 fonts shown in their own typeface** (open-licence web fonts: Press Start 2P, Bungee, Lobster, Pacifico, Anton, Righteous, Monoton, Orbitron, Bebas Neue, Caveat, Fredoka, Cinzel plus system classics)
 - Fill with a solid colour **or a linear gradient** between two colours
 - Stroke (outline), drop shadow, curved text, emboss and reflection
