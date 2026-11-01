@@ -16,7 +16,7 @@ Everything is organised around one canvas:
 
 - **Left rail** — the ten tools, each with its keyboard letter. The colour chip at the bottom swaps primary/secondary.
 - **Quick bar** — brush size, opacity, mirror X/Y and the pixel grid, always within reach while drawing.
-- **Right panel** (bottom sheet on phones) — six tabs: **Text, Stickers, Colour, Layers, Effects, 3D**. One panel at a time, so nothing is buried in a collapsed accordion.
+- **Right panel** (bottom sheet on phones) — seven tabs: **Text, Sticker, Photo, Colour, Layers, FX, 3D**. One panel at a time, so nothing is buried in a collapsed accordion.
 - **Canvas chip** in the top bar — size presets, resize, flip and rotate.
 - **Full-screen canvas** — the ⛶ button hides every panel for distraction-free drawing (and asks the browser for real full screen).
 - **File menu** — New, Open, Save, Import image, Export PNG, Canvas, Restore autosave, Shortcuts.
@@ -24,11 +24,17 @@ Everything is organised around one canvas:
 ## Features
 
 **Text**
-- Multiple lines, 15 font choices across pixel, display, handwriting and clean groups
+- Multiple lines, **16 fonts shown in their own typeface** (open-licence web fonts: Press Start 2P, Bungee, Lobster, Pacifico, Anton, Righteous, Monoton, Orbitron, Bebas Neue, Caveat, Fredoka, Cinzel plus system classics)
 - Fill with a solid colour **or a linear gradient** between two colours
 - Stroke (outline), drop shadow, curved text, emboss and reflection
 - **3D text**: extruded depth with adjustable angle, side colour and auto shading
 - Style presets: Plain, Poster, Neon
+
+**Photo tools** — one tap, no upload
+- **Make pixel art**: shrink into blocks and snap to the chosen palette, with optional dithering
+- **Scale** 25% / 50% / 200% / 400% and **crop to selection**
+- **Auto background removal** (samples the corners), remove white, or remove the primary colour
+- **B&W, sepia, sharpen**, and **use image colours as palette** (extracts the dominant colours)
 
 **Stickers**
 - 40 built-in shapes and emoji, adjustable size, placed at the tap anchor or centred
@@ -93,7 +99,7 @@ python3 -m http.server 8000
 ```
 index.html          markup: rail, quick bar, canvas, tabbed panels
 css/style.css       the whole UI, including the mobile bottom sheet
-js/core.js          pure image routines: colour maths, effects, dithering, 3D (no DOM)
+js/core.js          pure image routines: colour maths, effects, dithering, 3D, photo tools (no DOM)
 js/app.js           editor: tools, layers, text styling, stickers, history, file IO
 tests/core.test.js  unit tests for js/core.js
 tests/ui.js         headless browser test: boots the app and drives every control
