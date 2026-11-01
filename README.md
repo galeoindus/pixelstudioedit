@@ -1,14 +1,14 @@
-# Pixel Studio
+# pixelstudio
 
 A free, open-source pixel art editor that runs entirely in your browser. No install, no account, no uploads — every pixel stays on your machine.
 
-**[Open the editor →](https://galeoindus.github.io/pixel-studio/)** *(update this link after enabling Pages)*
+**[Open the editor →](https://galeoindus.github.io/pixelstudio/)** *(update this link after enabling Pages)*
 
 ![tools](docs/preview.svg)
 
 ## Why it exists
 
-Most pixel editors are either desktop-only or locked behind a subscription. Pixel Studio is a single static site: open `index.html` and start drawing. It was built as an original implementation after studying how popular mobile pixel-art tools work — the feature set is familiar, the code and assets are new and MIT licensed.
+Most pixel editors are either desktop-only or locked behind a subscription. pixelstudio is a single static site: open `index.html` and start drawing. It was built as an original implementation after studying how popular mobile pixel-art tools work — the feature set is familiar, the code and assets are new and MIT licensed.
 
 ## Features
 
@@ -51,8 +51,8 @@ Just open `index.html` in a browser — no build step, no dependencies.
 To run it locally with a server (recommended so autosave and file APIs behave predictably):
 
 ```bash
-git clone https://github.com/galeoindus/pixel-studio.git
-cd pixel-studio
+git clone https://github.com/galeoindus/pixelstudio.git
+cd pixelstudio
 python3 -m http.server 8000
 # then open http://localhost:8000
 ```
@@ -95,4 +95,4 @@ Issues and pull requests are welcome. Keep `js/core.js` free of DOM access so th
 
 MIT — see [LICENSE](LICENSE).
 
-Pixel Studio is an independent project. It is not affiliated with, endorsed by, or derived from the source code or assets of any commercial pixel-art app.
+pixelstudio is an independent project. It is not affiliated with, endorsed by, or derived from the source code or assets of any commercial pixel-art app.
