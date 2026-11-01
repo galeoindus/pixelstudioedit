@@ -221,15 +221,15 @@
     return compCv;
   }
 
-  /* Transparency checkerboard drawn in document pixels so it scales with zoom. */
-  function drawChecker(ctx, W, H, z) {
-    var cell = Math.max(3, 8 * z);
-    ctx.fillStyle = '#1b2029';
+  /* Transparency checkerboard: small, low-contrast squares in screen space so it
+     never competes with the artwork. */
+  function drawChecker(ctx, W, H) {
+    var cell = 10;
+    ctx.fillStyle = '#252b35';
     ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#242b36';
+    ctx.fillStyle = '#2c333f';
     for (var y = 0; y < H; y += cell) {
-      for (var x = 0; x < W; x += cell) {
-        if (((x / cell) + (y / cell)) % 2 === 0) continue;
+      for (var x = ((y / cell) % 2) * cell; x < W; x += cell * 2) {
         ctx.fillRect(x, y, Math.min(cell, W - x), Math.min(cell, H - y));
       }
     }
@@ -273,7 +273,7 @@
     screenCtx.clearRect(0, 0, W, H);
     screenCtx.imageSmoothingEnabled = false;
 
-    drawChecker(screenCtx, W, H, z);
+    if (S.showChecker) drawChecker(screenCtx, W, H);
     screenCtx.drawImage(composite(), 0, 0, W, H);
 
     if (S.floating) {
@@ -290,9 +290,9 @@
       screenCtx.drawImage(prevCv, 0, 0, W, H);
     }
 
-    if (S.showGrid && z >= 5 && z <= 24) {
+    if (S.showGrid && z >= 6 && z <= 20) {
       screenCtx.save();
-      screenCtx.strokeStyle = 'rgba(255,255,255,0.07)';
+      screenCtx.strokeStyle = 'rgba(255,255,255,0.055)';
       screenCtx.lineWidth = 1;
       screenCtx.beginPath();
       for (var x = 1; x < S.w; x++) { screenCtx.moveTo(x * z + 0.5, 0); screenCtx.lineTo(x * z + 0.5, H); }
@@ -1433,6 +1433,7 @@
     on('q-mirror-x', 'click', function () { S.symX = !S.symX; this.classList.toggle('on', S.symX); });
     on('q-mirror-y', 'click', function () { S.symY = !S.symY; this.classList.toggle('on', S.symY); });
     on('q-grid', 'click', function () { S.showGrid = !S.showGrid; this.classList.toggle('on', S.showGrid); render(); });
+    on('q-checker', 'click', function () { S.showChecker = !S.showChecker; this.classList.toggle('on', S.showChecker); render(); });
     on('zoom-in', 'click', function () { setZoom(effZoom() + 1); });
     on('zoom-out', 'click', function () { setZoom(effZoom() - 1); });
     on('zoom-fit', 'click', fitZoom);
