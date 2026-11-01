@@ -212,21 +212,68 @@ const check = (name, ok, detail) => {
   const afterImg = await ink();
   check('3D image changes the layer', afterImg !== beforeImg, beforeImg + ' -> ' + afterImg);
 
-  // 13 canvas ops
-  await tab('canvas');
-  check('canvas pane visible', await page.evaluate(() => {
-    const r = document.querySelector('#doc-rot-cw').getBoundingClientRect();
-    return r.width > 0 && r.height > 0;
-  }));
-  await page.evaluate(() => { document.querySelector('#resize-w').value = 64; document.querySelector('#resize-h').value = 64; });
-  await click('#do-resize');
+  // 13 text styling: stroke, gradient, depth, curve
+  await tab('text');
+  const inkPlain = await ink();
+  await setRange('text-stroke', 2);
+  await setRange('text-depth', 4);
+  await page.evaluate(() => { document.querySelector('#text-fill').click(); });
+  const styled = await page.evaluate(() => {
+    const c = window.PS.buildTextCanvas();
+    if (!c) return 0;
+    const d = c.getContext('2d').getImageData(0, 0, c.width, c.height).data;
+    let n = 0; for (let i = 3; i < d.length; i += 4) if (d[i] > 0) n++;
+    return n;
+  });
+  check('styled text renders ink', styled > 0, styled);
+  await click('#text-add');
+  const inkStyled = await ink();
+  check('styled text adds more ink than plain', inkStyled >= inkPlain, inkPlain + ' -> ' + inkStyled);
+  await click('[data-style="poster"]');
+  check('style preset applies', (await page.evaluate(() => window.PS.state.text.depth)) === 10);
+  await click('[data-style="plain"]');
+
+  // 13b stickers
+  await tab('stickers');
+  const stickers = await page.evaluate(() => document.querySelectorAll('#sticker-grid .sticker').length);
+  const inkPreSticker = await ink();
+  await click('#sticker-place');
+  const inkPostSticker = await ink();
+  check('sticker library renders', stickers >= 30, stickers);
+  check('sticker places ink', inkPostSticker > inkPreSticker, inkPreSticker + ' -> ' + inkPostSticker);
+
+  // 13c background + remove background
+  await tab('colour');
+  await page.evaluate(() => document.querySelectorAll('#palette button')[0].click());
+  await click('#bg-colour');
+  const bgInk = await ink();
+  check('background fill covers the layer', bgInk === 64 * 64, bgInk);
+  await tab('effects');
+  await setRange('bg-tolerance', 20);
+  await click('#bg-remove-colour');
+  const afterRemove = await ink();
+  check('remove background clears pixels', afterRemove < bgInk, bgInk + ' -> ' + afterRemove);
+  await click('#btn-undo');
+
+  // 13d photo filters
+  await click('[data-fx="vignette"]');
+  await click('[data-fx="stripes"]');
+  check('vignette and stripes run', (await ink()) > 0);
+
+  // 13e canvas dialog
+  await click('#doc-chip');
+  check('canvas dialog opens', await page.evaluate(() => !!document.querySelector('.overlay #dlg-rot-cw')));
   const s1 = await docSize();
-  await click('#doc-rot-cw');
+  await click('#dlg-rot-cw');
   const s2 = await docSize();
-  check('rotate swaps dims', s2.w === s1.h && s2.h === s1.w, JSON.stringify([s1, s2]));
-  await click('#presets-row button:nth-child(4)');
+  check('canvas dialog rotates', s2.w === s1.h && s2.h === s1.w, JSON.stringify([s1, s2]));
+  await page.evaluate(() => {
+    document.querySelector('#dlg-w').value = 48;
+    document.querySelector('#dlg-h').value = 48;
+  });
+  await click('.overlay [data-ok]');
   const s3 = await docSize();
-  check('size preset works', s3.w === 64 && s3.h === 64, JSON.stringify(s3));
+  check('canvas dialog resizes', s3.w === 48 && s3.h === 48, JSON.stringify(s3));
 
   // 14 zoom
   const z0 = await page.evaluate(() => document.querySelector('#zoom-label').textContent);
