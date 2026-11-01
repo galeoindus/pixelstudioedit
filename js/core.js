@@ -249,8 +249,8 @@
   function blur(img, radius) {
     var r = Math.max(1, radius | 0);
     var w = img.width, h = img.height;
-    img.data = boxBlurPass(img.data, w, h, r, true);
-    img.data = boxBlurPass(img.data, w, h, r, false);
+    img.data.set(boxBlurPass(img.data, w, h, r, true));
+    img.data.set(boxBlurPass(img.data, w, h, r, false));
     return img;
   }
 
@@ -417,8 +417,84 @@
     return img;
   }
 
+  /* ------------------------------------------------------------- 3D helpers */
+
+  /* Extrudes the opaque pixels of an image along (dx, dy) for `steps` pixels,
+   * painting the sides with sideRgb and the front face with faceRgb. */
+  function extrude(img, dx, dy, steps, sideRgb, faceRgb) {
+    var w = img.width, h = img.height;
+    var src = clone(img), s = src.data;
+    var out = blank(w, h), d = out.data;
+    var n = Math.max(1, steps | 0);
+    var side = sideRgb || [0, 0, 0];
+    for (var k = n; k >= 1; k--) {
+      var ox = Math.round(dx * k), oy = Math.round(dy * k);
+      var f = 0.35 + 0.65 * (1 - k / (n + 1));
+      var r = side[0] * f, g = side[1] * f, b = side[2] * f;
+      for (var y = 0; y < h; y++) {
+        for (var x = 0; x < w; x++) {
+          var i = (y * w + x) * 4;
+          if (s[i + 3] < 8) continue;
+          var tx = x + ox, ty = y + oy;
+          if (tx < 0 || ty < 0 || tx >= w || ty >= h) continue;
+          var j = (ty * w + tx) * 4;
+          d[j] = r; d[j + 1] = g; d[j + 2] = b; d[j + 3] = 255;
+        }
+      }
+    }
+    for (var p = 0; p < s.length; p += 4) {
+      var a = s[p + 3];
+      if (a < 8) continue;
+      if (faceRgb) {
+        d[p] = faceRgb[0]; d[p + 1] = faceRgb[1]; d[p + 2] = faceRgb[2]; d[p + 3] = a;
+      } else {
+        d[p] = s[p]; d[p + 1] = s[p + 1]; d[p + 2] = s[p + 2]; d[p + 3] = a;
+      }
+    }
+    img.data.set(d);
+    return img;
+  }
+
+  /* Fake 3D: yaw (rotateY, degrees) around the vertical axis and pitch
+   * (tiltX, degrees) around the horizontal axis, with a simple perspective. */
+  function perspective(img, opts) {
+    opts = opts || {};
+    var yaw = (opts.rotateY || 0) * Math.PI / 180;
+    var pitch = (opts.tiltX || 0) * Math.PI / 180;
+    if (!yaw && !pitch) return img;
+    var w = img.width, h = img.height;
+    var src = clone(img), s = src.data;
+    var out = blank(w, h), d = out.data;
+    var cx = (w - 1) / 2, cy = (h - 1) / 2;
+    var f = Math.max(w, h) * 1.7;
+    var ca = Math.cos(yaw), sa = Math.sin(yaw), cp = Math.cos(pitch), sp = Math.sin(pitch);
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var p = x - cx, v = y - cy;
+        var denX = f * ca - p * sa;
+        var denY = f * cp - v * sp;
+        if (Math.abs(denX) < 1e-6 || Math.abs(denY) < 1e-6) continue;
+        var sx = Math.round(cx + p * f / denX);
+        var sy = Math.round(cy + v * f / denY);
+        if (sx < 0 || sy < 0 || sx >= w || sy >= h) continue;
+        var si = (sy * w + sx) * 4, di = (y * w + x) * 4;
+        d[di] = s[si]; d[di + 1] = s[si + 1]; d[di + 2] = s[si + 2]; d[di + 3] = s[si + 3];
+      }
+    }
+    img.data.set(d);
+    return img;
+  }
+
+  /* Scales an RGB colour towards black/white by factor f (0.2 .. 1.8). */
+  function shade(rgb, f) {
+    return [clamp(rgb[0] * f, 0, 255), clamp(rgb[1] * f, 0, 255), clamp(rgb[2] * f, 0, 255)];
+  }
+
   var api = {
     clamp: clamp,
+    extrude: extrude,
+    perspective: perspective,
+    shade: shade,
     hexToRgb: hexToRgb,
     rgbToHex: rgbToHex,
     parseColor: parseColor,
