@@ -98,7 +98,7 @@ const check = (name, ok, detail) => {
     layers: document.querySelectorAll('.layer').length,
     hook: !!window.PS
   }));
-  check('boots with all controls', boot.tools === 10 && boot.tabs === 6 && boot.panes === 6 && boot.layers === 1, JSON.stringify(boot));
+  check('boots with all controls', boot.tools === 10 && boot.tabs === 7 && boot.panes === 7 && boot.layers === 1, JSON.stringify(boot));
 
   // 2 pencil / undo / redo
   await tool('pencil');
@@ -233,6 +233,12 @@ const check = (name, ok, detail) => {
   check('style preset applies', (await page.evaluate(() => window.PS.state.text.depth)) === 10);
   await click('[data-style="plain"]');
 
+  // 13a fonts
+  const fonts = await page.evaluate(() => document.querySelectorAll('#font-list .font-item').length);
+  check('font picker lists fonts', fonts >= 12, fonts);
+  await page.evaluate(() => document.querySelectorAll('#font-list .font-item')[3].click());
+  check('font selection sticks', await page.evaluate(() => window.PS.state.text.font !== "'Press Start 2P', monospace"));
+
   // 13b stickers
   await tab('stickers');
   const stickers = await page.evaluate(() => document.querySelectorAll('#sticker-grid .sticker').length);
@@ -259,6 +265,35 @@ const check = (name, ok, detail) => {
   await click('[data-fx="vignette"]');
   await click('[data-fx="stripes"]');
   check('vignette and stripes run', (await ink()) > 0);
+
+  // 13d2 photo tools
+  await tab('photo');
+  check('photo pane visible', await page.evaluate(() => {
+    const r = document.querySelector('#px-make').getBoundingClientRect();
+    return r.width > 0 && r.height > 0;
+  }));
+  const inkPrePixel = await ink();
+  await setRange('px-block', 4);
+  await click('#px-make');
+  check('pixelize runs', (await ink()) !== inkPrePixel || inkPrePixel > 0);
+  const palBefore = await page.evaluate(() => window.PS.state.palette.length);
+  await click('#photo-palette');
+  check('palette from image', (await page.evaluate(() => window.PS.state.palette.length)) > 0,
+    palBefore + ' -> ' + (await page.evaluate(() => window.PS.state.palette.length)));
+  const sizePreScale = await docSize();
+  await page.evaluate(() => document.querySelector('[data-scale="2"]').click());
+  const sizePostScale = await docSize();
+  check('scale 200%', sizePostScale.w === Math.min(1024, sizePreScale.w * 2), JSON.stringify([sizePreScale, sizePostScale]));
+  await click('#bg-auto');
+  check('auto background removal runs', true);
+
+  // 13d3 crop to selection
+  await tool('select');
+  await stroke(2, 2, 12, 12);
+  await tab('photo');
+  await click('#photo-crop');
+  const cropped = await docSize();
+  check('crop to selection', cropped.w === 11 && cropped.h === 11, JSON.stringify(cropped));
 
   // 13e canvas dialog
   await click('#doc-chip');
@@ -295,8 +330,13 @@ const check = (name, ok, detail) => {
   await click('#btn-zen');
   check('zen mode off', await page.evaluate(() => !document.querySelector('#app').classList.contains('zen')));
 
-  // 17 colour
+  // 17 colour — reset the palette first, an earlier test replaced it with image colours
   await tab('colour');
+  await page.evaluate(() => {
+    const s = document.querySelector('#palette-select');
+    s.value = 'db16';
+    s.dispatchEvent(new Event('change', { bubbles: true }));
+  });
   await click('#palette button:nth-child(4)');
   const hex = await val('#hex-input');
   check('palette sets colour', /^#[0-9A-F]{6}$/.test(hex), hex);
