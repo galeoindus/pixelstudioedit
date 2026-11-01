@@ -19,6 +19,25 @@
     '🤖', '💎', '🎈', '🍕', '😀', '😎', '🚀', '💡', '🏆', '🎯'
   ];
 
+  var FONTS = [
+    { name: 'Arcade', css: "'Press Start 2P', monospace" },
+    { name: 'Bungee', css: 'Bungee, Impact, sans-serif' },
+    { name: 'Lobster', css: 'Lobster, cursive' },
+    { name: 'Pacifico', css: 'Pacifico, cursive' },
+    { name: 'Anton', css: 'Anton, Impact, sans-serif' },
+    { name: 'Righteous', css: 'Righteous, sans-serif' },
+    { name: 'Monoton', css: 'Monoton, fantasy' },
+    { name: 'Orbitron', css: 'Orbitron, sans-serif' },
+    { name: 'Bebas', css: "'Bebas Neue', Impact, sans-serif" },
+    { name: 'Caveat', css: 'Caveat, cursive' },
+    { name: 'Fredoka', css: 'Fredoka, sans-serif' },
+    { name: 'Cinzel', css: 'Cinzel, serif' },
+    { name: 'Impact', css: 'Impact, sans-serif' },
+    { name: 'Georgia', css: 'Georgia, serif' },
+    { name: 'Courier', css: "'Courier New', monospace" },
+    { name: 'Arial', css: 'Arial, Helvetica, sans-serif' }
+  ];
+
   var S = {
     w: 64, h: 64, zoom: 8,
     layers: [], active: 0,
@@ -31,6 +50,7 @@
     fxBase: null, textAnchor: null,
     palette: [], ready: false, spaceDown: false,
     text: {
+      font: "'Press Start 2P', monospace",
       bold: true, italic: false, gradient: false,
       stroke: 0, strokeColor: '#000000',
       shadow: 0, shadowColor: '#000000',
@@ -749,6 +769,8 @@
       case 'blur': C.blur(img, +byId('fx-blur').value); break;
       case 'noise': C.noise(img, +byId('fx-noise').value, Date.now() % 99991); break;
       case 'vignette': C.vignette(img, 0.7); break;
+      case 'sharpen': C.sharpen(img, 60); break;
+      case 'sepia': C.sepia(img); break;
       case 'stripes': C.stripes(img, 4, 0.18); break;
       case 'outline': C.outline(img, byId('outline-color').value, +byId('outline-width').value); break;
       case 'shadow': C.dropShadow(img, +byId('shadow-dx').value, +byId('shadow-dy').value, byId('shadow-color').value, 1); break;
@@ -824,7 +846,26 @@
 
   function textFont(size) {
     return (S.text.bold ? 'bold ' : '') + (S.text.italic ? 'italic ' : '') +
-      Math.max(4, size) + 'px ' + byId('text-font').value;
+      Math.max(4, size) + 'px ' + S.text.font;
+  }
+
+  function renderFontList() {
+    var box = byId('font-list');
+    if (!box) return;
+    box.innerHTML = '';
+    FONTS.forEach(function (f) {
+      var b = document.createElement('button');
+      b.className = 'font-item' + (S.text.font === f.css ? ' sel' : '');
+      b.textContent = f.name;
+      b.style.fontFamily = f.css;
+      b.title = f.name;
+      b.onclick = function () {
+        S.text.font = f.css;
+        $$('#font-list .font-item').forEach(function (x) { x.classList.toggle('sel', x === b); });
+        toast('Font: ' + f.name);
+      };
+      box.appendChild(b);
+    });
   }
 
   /* Draws one line, optionally curved, into ctx. */
@@ -1024,6 +1065,62 @@
     l.ctx.restore();
     pushHistory(); render(); renderLayers();
     toast('Sticker added');
+  }
+
+  /* ------------------------------------------------------------------- photo */
+
+  function pixelize(dither) {
+    var got = readLayer();
+    if (!got) return;
+    var block = Math.max(1, +byId('px-block').value);
+    var nw = Math.max(1, Math.round(S.w / block));
+    var nh = Math.max(1, Math.round(S.h / block));
+    var small = C.resample(got.img, nw, nh);
+    C.quantize(small, selectedDitherPalette());
+    if (dither) C.ditherFloydSteinberg(small, selectedDitherPalette());
+    var big = C.resample(small, S.w, S.h);
+    got.img.data.set(big.data);
+    commitLayer(got.layer, got.img);
+    toast('Pixel art: ' + nw + '×' + nh + ' blocks');
+  }
+
+  function scaleImage(factor) {
+    var nw = Math.max(1, Math.min(1024, Math.round(S.w * factor)));
+    var nh = Math.max(1, Math.min(1024, Math.round(S.h * factor)));
+    resizeDoc(nw, nh);
+    toast('Scaled to ' + nw + '×' + nh);
+  }
+
+  function cropToSelection() {
+    if (!S.sel) { toast('Select an area first (M tool)'); return; }
+    var r = S.sel;
+    S.layers.forEach(function (l) {
+      var cv = offscreen(r.w, r.h);
+      cv.getContext('2d').drawImage(l.canvas, r.x, r.y, r.w, r.h, 0, 0, r.w, r.h);
+      l.canvas = cv;
+      l.ctx = cv.getContext('2d', { willReadFrequently: true });
+    });
+    S.w = r.w; S.h = r.h; S.sel = null;
+    pushHistory(); fitZoom(); render(); renderLayers(); updateStatus();
+    toast('Cropped to ' + S.w + '×' + S.h);
+  }
+
+  function autoRemoveBg() {
+    var got = readLayer();
+    if (!got) return;
+    C.autoKey(got.img, +byId('bg-tolerance').value);
+    commitLayer(got.layer, got.img);
+    toast('Background removed');
+  }
+
+  function extractPalette() {
+    var got = readLayer();
+    if (!got) return;
+    var cols = C.dominantColors(got.img, 12);
+    if (!cols.length) { toast('Nothing to sample'); return; }
+    S.palette = cols;
+    renderPalette();
+    toast('Palette from image: ' + cols.length + ' colours');
   }
 
   /* ---------------------------------------------------------------------- 3D */
@@ -1369,6 +1466,17 @@
     on('bg-remove-colour', 'click', function () { removeBackground(false); });
     on('bg-remove-white', 'click', function () { removeBackground(true); });
 
+    // photo
+    on('px-make', 'click', function () { pixelize(false); });
+    on('px-dither', 'click', function () { pixelize(true); });
+    $$('[data-scale]').forEach(function (b) {
+      b.onclick = function () { scaleImage(parseFloat(b.dataset.scale)); };
+    });
+    on('photo-crop', 'click', cropToSelection);
+    on('bg-auto', 'click', autoRemoveBg);
+    on('bg-white2', 'click', function () { removeBackground(true); });
+    on('photo-palette', 'click', extractPalette);
+
     // stickers
     on('sticker-place', 'click', function () { placeSticker(true); });
     on('sticker-clear', 'click', function () { S.textAnchor = null; toast('Anchor cleared — stickers go to the centre'); });
@@ -1534,6 +1642,7 @@
     setColor('#ffffff', true);
     set3DMode('text');
     renderStickerGrid();
+    renderFontList();
     syncTextControls();
     newDoc(64, 64);
     S.ready = true;
