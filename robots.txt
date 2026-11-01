@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://galeoindus.github.io/pixelstudioedit/sitemap.xml
