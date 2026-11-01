@@ -490,10 +490,67 @@
     return [clamp(rgb[0] * f, 0, 255), clamp(rgb[1] * f, 0, 255), clamp(rgb[2] * f, 0, 255)];
   }
 
+  /* ------------------------------------------------------- photo-style extras */
+
+  /* Darkens the edges of the image (vignette). strength 0..1 */
+  function vignette(img, strength) {
+    var w = img.width, h = img.height, d = img.data;
+    var s = strength == null ? 0.6 : clamp(strength, 0, 1);
+    var cx = (w - 1) / 2, cy = (h - 1) / 2;
+    var maxD = Math.sqrt(cx * cx + cy * cy) || 1;
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var i = (y * w + x) * 4;
+        if (d[i + 3] === 0) continue;
+        var dx = x - cx, dy = y - cy;
+        var t = Math.sqrt(dx * dx + dy * dy) / maxD;
+        var f = 1 - s * t * t;
+        d[i] *= f; d[i + 1] *= f; d[i + 2] *= f;
+      }
+    }
+    return img;
+  }
+
+  /* Diagonal stripes overlay. period in pixels, alpha 0..1 */
+  function stripes(img, period, alpha, light) {
+    var w = img.width, h = img.height, d = img.data;
+    var per = Math.max(2, period | 0);
+    var a = alpha == null ? 0.18 : clamp(alpha, 0, 1);
+    var base = light === false ? 0 : 255;
+    for (var y = 0; y < h; y++) {
+      for (var x = 0; x < w; x++) {
+        var i = (y * w + x) * 4;
+        if (d[i + 3] === 0) continue;
+        if (Math.floor((x + y) / per) % 2 !== 0) continue;
+        d[i] = d[i] * (1 - a) + base * a;
+        d[i + 1] = d[i + 1] * (1 - a) + base * a;
+        d[i + 2] = d[i + 2] * (1 - a) + base * a;
+      }
+    }
+    return img;
+  }
+
+  /* Makes every pixel close to `target` transparent (background removal). */
+  function chromaKey(img, target, tolerance) {
+    var d = img.data, tol = tolerance == null ? 24 : tolerance;
+    for (var i = 0; i < d.length; i += 4) {
+      if (d[i + 3] === 0) continue;
+      if (Math.abs(d[i] - target[0]) <= tol &&
+          Math.abs(d[i + 1] - target[1]) <= tol &&
+          Math.abs(d[i + 2] - target[2]) <= tol) {
+        d[i + 3] = 0;
+      }
+    }
+    return img;
+  }
+
   var api = {
     clamp: clamp,
     extrude: extrude,
     perspective: perspective,
+    vignette: vignette,
+    stripes: stripes,
+    chromaKey: chromaKey,
     shade: shade,
     hexToRgb: hexToRgb,
     rgbToHex: rgbToHex,
