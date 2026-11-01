@@ -67,5 +67,38 @@ ok('saturation -100 grey', Math.abs(s.data[0]-s.data[1])<2 && Math.abs(s.data[1]
 let t = img(1,1,[200,10,10,255]); C.hueRotate(t, 120);
 ok('hue rotate shifts channels', t.data[0]<200 && t.data[1]>10, t.data.slice(0,3));
 
+// ---- 3D routines -------------------------------------------------------
+let ex = img(9, 9, [0,0,0,0]); C.setPixel(ex, 4, 4, [255,255,255,255]);
+C.extrude(ex, 1, 0, 3, [200,0,0], [0,200,0]);
+ok('extrude paints the side', C.getPixel(ex, 7, 4)[3] === 255 && C.getPixel(ex, 7, 4)[0] > 0, C.getPixel(ex, 7, 4));
+ok('extrude keeps the face colour', C.getPixel(ex, 4, 4)[1] === 200, C.getPixel(ex, 4, 4));
+
+let pe = img(9, 9, [0,0,0,0]);
+for (let x = 0; x < 9; x++) C.setPixel(pe, x, 4, [255,0,0,255]);
+const opaqueBefore = pe.data.filter((v, i) => i % 4 === 3 && v > 0).length;
+C.perspective(pe, { rotateY: 30 });
+ok('perspective transforms geometry', pe.data.filter((v, i) => i % 4 === 3 && v > 0).length !== opaqueBefore ||
+  JSON.stringify(Array.from(pe.data)) !== JSON.stringify(Array.from(img(9,9,[0,0,0,0]).data)));
+
+ok('shade darkens a colour', JSON.stringify(C.shade([200,200,200], 0.5)) === '[100,100,100]');
+
+// ---- ImageData safety --------------------------------------------------
+// Browsers expose ImageData.data as read-only, so every routine must copy
+// into it rather than reassign. Simulate that here.
+function frozenImage(w, h, fill) {
+  const base = img(w, h, fill);
+  return { width: w, height: h, data: base.data,
+           set data(v) { throw new Error('data is read-only'); },
+           get data() { return base.data; } };
+}
+function safe(name, fn) {
+  let frozen;
+  try { frozen = frozenImage(8, 8, [40, 60, 80, 255]); fn(frozen); ok(name, true); }
+  catch (e) { ok(name, false, e.message); }
+}
+safe('blur tolerates read-only ImageData', i => C.blur(i, 2));
+safe('extrude tolerates read-only ImageData', i => C.extrude(i, 1, 1, 3, [0,0,0], [255,255,255]));
+safe('perspective tolerates read-only ImageData', i => C.perspective(i, { rotateY: 20 }));
+
 console.log(fails ? `\n${fails} FAILURE(S)` : '\nALL CORE TESTS PASSED');
 process.exit(fails?1:0);
