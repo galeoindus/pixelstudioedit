@@ -1,93 +1,93 @@
 /* pixelstudio — editor front-end.
- * Original implementation, MIT licensed. Runs entirely in the browser;
- * nothing is uploaded anywhere.
+ * Original implementation, MIT licensed. Everything runs locally in the browser.
  */
 (function () {
   'use strict';
 
   var C = window.PSCore;
-  var $ = function (sel, root) { return (root || document).querySelector(sel); };
-  var $$ = function (sel, root) { return Array.prototype.slice.call((root || document).querySelectorAll(sel)); };
+  var $ = function (s, r) { return (r || document).querySelector(s); };
+  var $$ = function (s, r) { return Array.prototype.slice.call((r || document).querySelectorAll(s)); };
+  var byId = function (id) { return document.getElementById(id); };
 
-  var MAX_BACKING_PIXELS = 12e6;
-  var AUTOSAVE_KEY = 'pixelstudio.autosave.v1';
-
-  /* ------------------------------------------------------------------ state */
+  var MAX_BACKING = 12e6;
+  var AUTOSAVE_KEY = 'pixelstudio.autosave.v2';
 
   var S = {
-    w: 64, h: 64, zoom: 8, panX: 0, panY: 0,
+    w: 64, h: 64, zoom: 8,
     layers: [], active: 0,
     tool: 'pencil',
     color: '#1b1b1f', color2: '#ffffff',
     brush: 1, opacity: 1, tolerance: 0,
-    symX: false, symY: false, fillShapes: false, showGrid: true,
-    sel: null, floating: null, preview: null, drag: null,
+    symX: false, symY: false, showGrid: true, fillShapes: false,
+    sel: null, floating: null, preview: null, drag: null, panning: null,
     history: [], hpos: -1,
-    fxBase: null,
-    textAnchor: null,
-    palette: [],
-    ready: false,
-    spaceDown: false,
-    panning: null
+    fxBase: null, textAnchor: null,
+    palette: [], ready: false, spaceDown: false,
+    text: { bold: true, italic: false },
+    mode3d: 'text',
+    tab: 'colour'
   };
 
-  var screen = $('#screen');
-  var screenCtx = screen.getContext('2d');
-  var stage = $('#stage');
-  var viewport = $('#viewport');
-
+  var screen, screenCtx, stage, stageWrap;
   var compCv = document.createElement('canvas');
   var compCtx = compCv.getContext('2d');
   var prevCv = document.createElement('canvas');
   var prevCtx = prevCv.getContext('2d');
   var checkerPattern = null;
   var toastTimer = null;
+  var autosaveTimer = null;
 
   /* ----------------------------------------------------------------- helpers */
 
   function toast(msg) {
-    var t = $('#toast');
+    var t = byId('toast');
+    if (!t) return;
     t.textContent = msg;
     t.classList.add('show');
     clearTimeout(toastTimer);
     toastTimer = setTimeout(function () { t.classList.remove('show'); }, 2200);
   }
 
+  function on(id, evt, fn) {
+    var el = byId(id);
+    if (!el) { console.warn('pixelstudio: missing element #' + id); return; }
+    el.addEventListener(evt, fn);
+  }
+
   function modal(title, html, onOk, okLabel) {
     var overlay = document.createElement('div');
     overlay.className = 'overlay';
     overlay.innerHTML =
-      '<div class="modal"><h3>' + title + '</h3>' +
-      '<div class="content">' + html + '</div>' +
+      '<div class="modal"><h3>' + title + '</h3><div class="content">' + html + '</div>' +
       '<div class="actions"><button class="btn" data-cancel>Cancel</button>' +
       '<button class="btn primary" data-ok>' + (okLabel || 'OK') + '</button></div></div>';
     document.body.appendChild(overlay);
-    function close() { overlay.remove(); document.removeEventListener('keydown', onKey); }
-    function onKey(e) { if (e.key === 'Escape') { e.stopPropagation(); close(); } }
-    document.addEventListener('keydown', onKey, true);
+    function close() { overlay.remove(); document.removeEventListener('keydown', esc, true); }
+    function esc(e) { if (e.key === 'Escape') { e.stopPropagation(); close(); } }
+    document.addEventListener('keydown', esc, true);
     overlay.addEventListener('mousedown', function (e) { if (e.target === overlay) close(); });
     $('[data-cancel]', overlay).onclick = close;
-    $('[data-ok]', overlay).onclick = function () {
-      if (onOk(overlay) !== false) close();
-    };
+    $('[data-ok]', overlay).onclick = function () { if (onOk(overlay) !== false) close(); };
     return overlay;
   }
 
-  function download(blobOrUrl, filename) {
+  function saveBlob(blob, filename) {
+    var url = URL.createObjectURL(blob);
     var a = document.createElement('a');
-    a.href = typeof blobOrUrl === 'string' ? blobOrUrl : URL.createObjectURL(blobOrUrl);
+    a.href = url;
     a.download = filename;
     document.body.appendChild(a);
     a.click();
     a.remove();
-    if (typeof blobOrUrl !== 'string') setTimeout(function () { URL.revokeObjectURL(a.href); }, 4000);
+    setTimeout(function () { URL.revokeObjectURL(url); }, 4000);
   }
 
   /* ------------------------------------------------------------------ layers */
 
   function mkLayer(name) {
     var cv = document.createElement('canvas');
-    cv.width = S.w; cv.height = S.h;
+    cv.width = S.w;
+    cv.height = S.h;
     return {
       name: name, visible: true, opacity: 1, locked: false,
       canvas: cv, ctx: cv.getContext('2d', { willReadFrequently: true })
@@ -99,8 +99,8 @@
   function guardLayer() {
     var l = activeLayer();
     if (!l) { toast('No layer selected'); return null; }
-    if (l.locked) { toast('This layer is locked'); return null; }
-    if (!l.visible) { toast('This layer is hidden'); return null; }
+    if (l.locked) { toast('Layer is locked'); return null; }
+    if (!l.visible) { toast('Layer is hidden'); return null; }
     return l;
   }
 
@@ -127,9 +127,9 @@
       return l;
     });
     S.active = Math.min(snap.active, S.layers.length - 1);
-    S.sel = null; S.floating = null;
-    $('#resize-w').value = S.w;
-    $('#resize-h').value = S.h;
+    S.sel = null; S.floating = null; S.preview = null;
+    byId('resize-w').value = S.w;
+    byId('resize-h').value = S.h;
     render(); renderLayers(); updateStatus();
   }
 
@@ -157,14 +157,14 @@
   }
 
   function updateHistoryButtons() {
-    $('#btn-undo').disabled = S.hpos <= 0;
-    $('#btn-redo').disabled = S.hpos >= S.history.length - 1;
+    byId('btn-undo').disabled = S.hpos <= 0;
+    byId('btn-redo').disabled = S.hpos >= S.history.length - 1;
   }
 
-  /* ---------------------------------------------------------------- rendering */
+  /* --------------------------------------------------------------- rendering */
 
   function effZoom() {
-    var max = Math.floor(Math.sqrt(MAX_BACKING_PIXELS / Math.max(1, S.w * S.h)));
+    var max = Math.floor(Math.sqrt(MAX_BACKING / Math.max(1, S.w * S.h)));
     return Math.max(1, Math.min(S.zoom, Math.max(1, max)));
   }
 
@@ -186,8 +186,8 @@
       var p = document.createElement('canvas');
       p.width = 16; p.height = 16;
       var pc = p.getContext('2d');
-      pc.fillStyle = '#181c24'; pc.fillRect(0, 0, 16, 16);
-      pc.fillStyle = '#222836'; pc.fillRect(0, 0, 8, 8); pc.fillRect(8, 8, 8, 8);
+      pc.fillStyle = '#171b23'; pc.fillRect(0, 0, 16, 16);
+      pc.fillStyle = '#212736'; pc.fillRect(0, 0, 8, 8); pc.fillRect(8, 8, 8, 8);
       checkerPattern = ctx.createPattern(p, 'repeat');
     }
     ctx.fillStyle = checkerPattern;
@@ -203,8 +203,6 @@
     c.strokeStyle = p.color;
     c.fillStyle = p.color;
     c.lineWidth = lw;
-    c.lineCap = 'butt';
-    c.lineJoin = 'miter';
     if (p.tool === 'line') {
       c.beginPath();
       c.moveTo(x0 + off, y0 + off);
@@ -253,7 +251,7 @@
 
     if (S.showGrid && z >= 5) {
       screenCtx.save();
-      screenCtx.strokeStyle = 'rgba(255,255,255,0.10)';
+      screenCtx.strokeStyle = 'rgba(255,255,255,0.09)';
       screenCtx.lineWidth = 1;
       screenCtx.beginPath();
       for (var x = 1; x < S.w; x++) { screenCtx.moveTo(x * z + 0.5, 0); screenCtx.lineTo(x * z + 0.5, H); }
@@ -263,9 +261,7 @@
     }
 
     var selRect = S.sel;
-    if (S.drag && S.drag.type === 'sel' && S.drag.cur) {
-      selRect = normalizeRect(S.drag.start, S.drag.cur);
-    }
+    if (S.drag && S.drag.type === 'sel' && S.drag.cur) selRect = normalizeRect(S.drag.start, S.drag.cur);
     if (selRect && selRect.w > 0 && selRect.h > 0) {
       screenCtx.save();
       screenCtx.strokeStyle = '#6ee7b7';
@@ -275,7 +271,7 @@
       screenCtx.restore();
     }
 
-    $('#zoom-label').textContent = Math.round(z * 100) + '%';
+    byId('zoom-label').textContent = Math.round(z * 100) + '%';
   }
 
   function normalizeRect(a, b) {
@@ -283,21 +279,19 @@
     var w = Math.abs(b.x - a.x) + 1, h = Math.abs(b.y - a.y) + 1;
     x = Math.max(0, Math.min(S.w - 1, x));
     y = Math.max(0, Math.min(S.h - 1, y));
-    w = Math.min(w, S.w - x);
-    h = Math.min(h, S.h - y);
-    return { x: x, y: y, w: w, h: h };
+    return { x: x, y: y, w: Math.min(w, S.w - x), h: Math.min(h, S.h - y) };
   }
 
   function updateStatus() {
-    $('#status-size').textContent = S.w + ' × ' + S.h;
     var l = activeLayer();
-    $('#status-layer').textContent = l ? l.name : '—';
+    byId('status-layer').textContent = l ? l.name : '—';
+    byId('doc-chip').textContent = S.w + ' × ' + S.h;
   }
 
   function fitZoom() {
-    var pad = 60;
-    var zx = (viewport.clientWidth - pad) / S.w;
-    var zy = (viewport.clientHeight - pad) / S.h;
+    var pad = 56;
+    var zx = (stageWrap.clientWidth - pad) / S.w;
+    var zy = (stageWrap.clientHeight - pad) / S.h;
     S.zoom = Math.max(1, Math.min(32, Math.floor(Math.min(zx, zy)) || 1));
     render();
   }
@@ -310,14 +304,13 @@
   /* --------------------------------------------------------------- layers UI */
 
   function renderLayers() {
-    var box = $('#layers');
+    var box = byId('layers');
     box.innerHTML = '';
     for (var i = S.layers.length - 1; i >= 0; i--) {
       (function (i) {
         var l = S.layers[i];
         var el = document.createElement('div');
         el.className = 'layer' + (i === S.active ? ' active' : '');
-        el.draggable = false;
 
         var eye = document.createElement('button');
         eye.className = 'eye' + (l.visible ? ' on' : '');
@@ -326,12 +319,12 @@
         eye.onclick = function (e) { e.stopPropagation(); l.visible = !l.visible; render(); renderLayers(); };
 
         var th = document.createElement('canvas');
-        th.width = 34; th.height = 34;
+        th.width = 36; th.height = 36;
         var tc = th.getContext('2d');
         tc.imageSmoothingEnabled = false;
-        var sc = Math.min(34 / S.w, 34 / S.h);
+        var sc = Math.min(36 / S.w, 36 / S.h);
         var dw = Math.max(1, Math.round(S.w * sc)), dh = Math.max(1, Math.round(S.h * sc));
-        tc.drawImage(l.canvas, Math.round((34 - dw) / 2), Math.round((34 - dh) / 2), dw, dh);
+        tc.drawImage(l.canvas, Math.round((36 - dw) / 2), Math.round((36 - dh) / 2), dw, dh);
 
         var name = document.createElement('div');
         name.className = 'name';
@@ -353,40 +346,48 @@
         el.appendChild(th);
         el.appendChild(name);
         el.appendChild(lock);
-        el.onclick = function () { S.active = i; renderLayers(); updateStatus(); $('#layer-opacity').value = Math.round(l.opacity * 100); };
+        el.onclick = function () {
+          S.active = i;
+          byId('layer-opacity').value = Math.round(l.opacity * 100);
+          byId('layer-opacity-val').textContent = Math.round(l.opacity * 100);
+          renderLayers(); updateStatus();
+        };
         box.appendChild(el);
       })(i);
     }
     var cur = activeLayer();
-    if (cur) $('#layer-opacity').value = Math.round(cur.opacity * 100);
-    $('#layer-opacity-val').textContent = Math.round((cur ? cur.opacity : 1) * 100);
+    if (cur) {
+      byId('layer-opacity').value = Math.round(cur.opacity * 100);
+      byId('layer-opacity-val').textContent = Math.round(cur.opacity * 100);
+    }
   }
 
   /* ------------------------------------------------------------------ colour */
 
   function setColor(hex, secondary) {
-    var norm = C.rgbToHex.apply(null, C.hexToRgb(hex));
+    var rgb = C.parseColor(hex);
+    var norm = C.rgbToHex(rgb[0], rgb[1], rgb[2]);
     if (secondary) S.color2 = norm; else S.color = norm;
-    $('#swatch-primary').style.background = S.color;
-    $('#swatch-secondary').style.background = S.color2;
+    byId('rail-primary').style.background = S.color;
+    byId('rail-secondary').style.background = S.color2;
+    byId('sw-primary').firstElementChild.style.background = S.color;
+    byId('sw-secondary').firstElementChild.style.background = S.color2;
     if (!secondary) {
-      $('#hex-input').value = S.color.toUpperCase();
-      $('#color-input').value = S.color;
+      byId('hex-input').value = S.color.toUpperCase();
+      byId('color-input').value = S.color;
     }
     markPaletteSelection();
   }
 
   function renderPalette() {
-    var box = $('#palette');
+    var box = byId('palette');
     box.innerHTML = '';
     S.palette.forEach(function (hex) {
       var b = document.createElement('button');
       b.style.background = hex;
-      b.title = hex + ' — click to use, shift-click for secondary, right-click to remove';
+      b.title = hex;
       b.dataset.hex = hex.toLowerCase();
-      b.onclick = function (e) {
-        if (e.shiftKey) setColor(hex, true); else setColor(hex, false);
-      };
+      b.onclick = function (e) { setColor(hex, e.shiftKey); };
       b.oncontextmenu = function (e) {
         e.preventDefault();
         S.palette = S.palette.filter(function (c) { return c !== hex; });
@@ -411,16 +412,17 @@
   }
 
   function fillPaletteSelects() {
-    var opts = Object.keys(C.PALETTES).map(function (k) {
+    var html = Object.keys(C.PALETTES).map(function (k) {
       return '<option value="' + k + '">' + C.PALETTES[k].name + '</option>';
     }).join('');
-    $('#palette-select').innerHTML = opts;
-    $('#dither-palette').innerHTML = opts;
+    byId('palette-select').innerHTML = html;
+    byId('dither-palette').innerHTML = html;
   }
 
   function selectedDitherPalette() {
-    var p = C.PALETTES[$('#dither-palette').value];
-    return p ? p.colors.slice() : (S.palette.length ? S.palette.slice() : C.PALETTES.db16.colors.slice());
+    var p = C.PALETTES[byId('dither-palette').value];
+    if (p) return p.colors.slice();
+    return S.palette.length ? S.palette.slice() : C.PALETTES.db16.colors.slice();
   }
 
   /* ------------------------------------------------------------------- tools */
@@ -439,7 +441,7 @@
   function stampAt(layer, x, y, colorHex, erase) {
     var ctx = layer.ctx;
     var size = Math.max(1, S.brush);
-    var half = Math.floor((size - 1) / 2);
+    var half = Math.floor(size / 2);
     ctx.save();
     if (erase) ctx.globalCompositeOperation = 'destination-out';
     ctx.globalAlpha = erase ? 1 : S.opacity;
@@ -473,40 +475,39 @@
     var img = l.ctx.getImageData(0, 0, S.w, S.h);
     C.floodFill(img, p.x, p.y, C.parseColor(S.color), S.tolerance);
     l.ctx.putImageData(img, 0, 0);
-    pushHistory();
-    render(); renderLayers();
+    pushHistory(); render(); renderLayers();
   }
 
   function pickColor(p) {
     var img = compCtx.getImageData(0, 0, S.w, S.h);
     var px = C.getPixel(img, p.x, p.y);
-    if (px[3] === 0) { toast('Transparent pixel'); return; }
-    setColor(C.rgbToHex(px[0], px[1], px[2]));
-    toast('Picked ' + C.rgbToHex(px[0], px[1], px[2]).toUpperCase());
+    if (px[3] === 0) { toast('That pixel is transparent'); return; }
+    var hex = C.rgbToHex(px[0], px[1], px[2]);
+    setColor(hex);
+    toast('Picked ' + hex.toUpperCase());
   }
 
   /* ---------------------------------------------------------- pointer events */
 
   function onDown(e) {
-    if (e.button === 2) { /* secondary colour stroke */ }
-    var useSecondary = e.button === 2;
     if (e.button === 1 || S.spaceDown || S.tool === 'hand') {
-      S.panning = { x: e.clientX, y: e.clientY, px: S.panX, py: S.panY };
+      S.panning = { x: e.clientX, y: e.clientY };
       stage.classList.add('panning');
       e.preventDefault();
       return;
     }
     var p = pixelFromEvent(e);
     if (!p.inside) return;
-    var color = useSecondary ? S.color2 : S.color;
+    var color = e.button === 2 ? S.color2 : S.color;
     var l = activeLayer();
 
     if (S.tool === 'pencil' || S.tool === 'eraser') {
       if (!guardLayer()) return;
-      S.drag = { type: 'draw', last: p, color: color, erase: S.tool === 'eraser' };
-      stampAt(l, p.x, p.y, color, S.tool === 'eraser');
+      var erase = S.tool === 'eraser';
+      S.drag = { type: 'draw', last: p, color: color, erase: erase };
+      stampAt(l, p.x, p.y, color, erase);
       render();
-      screen.setPointerCapture && screen.setPointerCapture(e.pointerId);
+      if (screen.setPointerCapture) { try { screen.setPointerCapture(e.pointerId); } catch (err) {} }
     } else if (S.tool === 'bucket') {
       bucketFill(p);
     } else if (S.tool === 'picker') {
@@ -526,9 +527,9 @@
       }
     } else if (S.tool === 'text') {
       S.textAnchor = { x: p.x, y: p.y };
-      toast('Text anchor set at ' + p.x + ', ' + p.y);
-      var ta = $('#text-content');
-      ta.focus();
+      openTab('text');
+      byId('text-content').focus();
+      toast('Text will start at ' + p.x + ', ' + p.y);
     }
   }
 
@@ -549,12 +550,12 @@
 
   function onMove(e) {
     var p = pixelFromEvent(e);
-    $('#status-pos').textContent = p.inside ? (p.x + ', ' + p.y) : '—';
+    byId('status-pos').textContent = p.inside ? (p.x + ', ' + p.y) : '—';
 
     if (S.panning) {
-      S.panX = S.panning.px + (e.clientX - S.panning.x);
-      S.panY = S.panning.py + (e.clientY - S.panning.y);
-      stage.style.transform = 'translate(' + S.panX + 'px,' + S.panY + 'px)';
+      stageWrap.scrollLeft -= e.clientX - S.panning.x;
+      stageWrap.scrollTop -= e.clientY - S.panning.y;
+      S.panning = { x: e.clientX, y: e.clientY };
       return;
     }
     if (!S.drag) return;
@@ -562,6 +563,7 @@
     if (S.drag.type === 'draw') {
       var l = activeLayer();
       if (!l) return;
+      if (!p.inside) { S.drag.last = p; return; }
       strokeTo(l, S.drag.last.x, S.drag.last.y, p.x, p.y, S.drag.color, S.drag.erase);
       S.drag.last = p;
       render();
@@ -578,25 +580,17 @@
     }
   }
 
-  function onUp(e) {
-    if (S.panning) {
-      S.panning = null;
-      stage.classList.remove('panning');
-      return;
-    }
+  function onUp() {
+    if (S.panning) { S.panning = null; stage.classList.remove('panning'); return; }
     if (!S.drag) return;
     var d = S.drag;
     S.drag = null;
 
     if (d.type === 'draw') {
-      pushHistory();
-      renderLayers();
+      pushHistory(); renderLayers();
     } else if (d.type === 'shape') {
       var l = guardLayer();
-      if (l && S.preview) {
-        drawShape(l.ctx, S.preview);
-        pushHistory();
-      }
+      if (l && S.preview) { drawShape(l.ctx, S.preview); pushHistory(); }
       S.preview = null;
       render(); renderLayers();
     } else if (d.type === 'sel') {
@@ -608,11 +602,7 @@
     } else if (d.type === 'move' && S.floating) {
       var l2 = guardLayer();
       var f = S.floating;
-      if (l2) {
-        l2.ctx.drawImage(f.canvas, f.x + f.dx, f.y + f.dy);
-        pushHistory();
-        renderLayers();
-      }
+      if (l2) { l2.ctx.drawImage(f.canvas, f.x + f.dx, f.y + f.dy); pushHistory(); renderLayers(); }
       S.sel = { x: f.x + f.dx, y: f.y + f.dy, w: f.w, h: f.h };
       S.floating = null;
       render();
@@ -632,7 +622,7 @@
   function addLayer() {
     var l = mkLayer('Layer ' + (S.layers.length + 1));
     S.layers.splice(S.active + 1, 0, l);
-    S.active = S.active + 1;
+    S.active++;
     pushHistory(); renderLayers(); render(); updateStatus();
   }
 
@@ -648,17 +638,17 @@
   }
 
   function deleteLayer() {
-    if (S.layers.length <= 1) { toast('The document needs at least one layer'); return; }
+    if (S.layers.length <= 1) { toast('Keep at least one layer'); return; }
     S.layers.splice(S.active, 1);
     S.active = Math.max(0, S.active - 1);
     pushHistory(); renderLayers(); render(); updateStatus();
   }
 
   function moveLayer(dir) {
-    var i = S.active, j = i + dir;
+    var j = S.active + dir;
     if (j < 0 || j >= S.layers.length) return;
-    var tmp = S.layers[i];
-    S.layers[i] = S.layers[j];
+    var tmp = S.layers[S.active];
+    S.layers[S.active] = S.layers[j];
     S.layers[j] = tmp;
     S.active = j;
     pushHistory(); renderLayers(); render(); updateStatus();
@@ -703,14 +693,14 @@
       l.ctx = cv.getContext('2d', { willReadFrequently: true });
     });
     S.w = nw; S.h = nh; S.sel = null; S.floating = null;
-    $('#resize-w').value = S.w;
-    $('#resize-h').value = S.h;
+    byId('resize-w').value = S.w;
+    byId('resize-h').value = S.h;
     pushHistory(); fitZoom(); render(); renderLayers(); updateStatus();
   }
 
   function resizeDoc(nw, nh) {
-    nw = Math.max(1, Math.min(1024, Math.round(nw)));
-    nh = Math.max(1, Math.min(1024, Math.round(nh)));
+    nw = Math.max(1, Math.min(1024, Math.round(nw || S.w)));
+    nh = Math.max(1, Math.min(1024, Math.round(nh || S.h)));
     S.layers.forEach(function (l) {
       var cv = document.createElement('canvas');
       cv.width = nw; cv.height = nh;
@@ -721,8 +711,8 @@
       l.ctx = cv.getContext('2d', { willReadFrequently: true });
     });
     S.w = nw; S.h = nh; S.sel = null; S.floating = null;
-    $('#resize-w').value = nw;
-    $('#resize-h').value = nh;
+    byId('resize-w').value = nw;
+    byId('resize-h').value = nh;
     pushHistory(); fitZoom(); render(); renderLayers(); updateStatus();
   }
 
@@ -746,12 +736,12 @@
     switch (name) {
       case 'invert': C.invert(img); break;
       case 'grayscale': C.grayscale(img); break;
-      case 'posterize': C.posterize(img, +$('#fx-levels').value); break;
+      case 'posterize': C.posterize(img, +byId('fx-levels').value); break;
       case 'threshold': C.threshold(img, 128); break;
-      case 'blur': C.blur(img, +$('#fx-blur').value); break;
-      case 'noise': C.noise(img, +$('#fx-noise').value, (Date.now() % 99991)); break;
-      case 'outline': C.outline(img, $('#outline-color').value, +$('#outline-width').value); break;
-      case 'shadow': C.dropShadow(img, +$('#shadow-dx').value, +$('#shadow-dy').value, $('#shadow-color').value, 1); break;
+      case 'blur': C.blur(img, +byId('fx-blur').value); break;
+      case 'noise': C.noise(img, +byId('fx-noise').value, Date.now() % 99991); break;
+      case 'outline': C.outline(img, byId('outline-color').value, +byId('outline-width').value); break;
+      case 'shadow': C.dropShadow(img, +byId('shadow-dx').value, +byId('shadow-dy').value, byId('shadow-color').value, 1); break;
       default: return;
     }
     commitLayer(got.layer, img);
@@ -762,24 +752,23 @@
     if (!l || l.locked) return;
     if (!S.fxBase) S.fxBase = l.ctx.getImageData(0, 0, S.w, S.h);
     var img = { width: S.w, height: S.h, data: new Uint8ClampedArray(S.fxBase.data) };
-    C.brightness(img, +$('#fx-brightness').value);
-    C.contrast(img, +$('#fx-contrast').value);
-    C.saturation(img, +$('#fx-saturation').value);
-    C.hueRotate(img, +$('#fx-hue').value);
+    C.brightness(img, +byId('fx-brightness').value);
+    C.contrast(img, +byId('fx-contrast').value);
+    C.saturation(img, +byId('fx-saturation').value);
+    C.hueRotate(img, +byId('fx-hue').value);
     l.ctx.putImageData(new ImageData(new Uint8ClampedArray(img.data), S.w, S.h), 0, 0);
     render();
     if (!live) { pushHistory(); renderLayers(); }
   }
 
-  function resetAdjust(commit) {
+  function resetAdjust() {
     var l = activeLayer();
     if (S.fxBase && l) l.ctx.putImageData(S.fxBase, 0, 0);
     S.fxBase = null;
     ['fx-brightness', 'fx-contrast', 'fx-saturation', 'fx-hue'].forEach(function (id) {
-      $('#' + id).value = 0;
-      $('#' + id + '-val').textContent = '0';
+      byId(id).value = 0;
+      byId(id + '-val').textContent = '0';
     });
-    if (commit) { pushHistory(); renderLayers(); }
     render();
   }
 
@@ -793,30 +782,101 @@
     commitLayer(got.layer, got.img);
   }
 
+  /* -------------------------------------------------------------------- text */
+
+  function textFontString(size) {
+    return (S.text.bold ? 'bold ' : '') + (S.text.italic ? 'italic ' : '') +
+      Math.max(4, size) + 'px ' + byId('text-font').value;
+  }
+
+  function paintText(ctx, txt, anchor, size) {
+    ctx.save();
+    ctx.font = textFontString(size);
+    ctx.textBaseline = 'top';
+    ctx.textAlign = 'left';
+    var lines = txt.split('\n');
+    for (var i = 0; i < lines.length; i++) {
+      ctx.fillText(lines[i], anchor.x, anchor.y + i * Math.round(size * 1.2));
+    }
+    ctx.restore();
+  }
+
   function addText() {
     var l = guardLayer();
     if (!l) return;
-    var txt = $('#text-content').value;
+    var txt = byId('text-content').value;
     if (!txt.trim()) { toast('Type some text first'); return; }
-    var size = Math.max(4, +$('#text-size').value || 12);
-    var bold = $('#text-bold').checked ? 'bold ' : '';
-    var font = $('#text-font').value;
-    var anchor = S.textAnchor || { x: 2, y: 2 };
+    var size = +byId('text-size').value || 12;
     l.ctx.save();
     l.ctx.globalAlpha = S.opacity;
     l.ctx.fillStyle = S.color;
-    l.ctx.font = bold + size + 'px ' + font;
-    l.ctx.textBaseline = 'top';
-    var lines = txt.split('\n');
-    for (var i = 0; i < lines.length; i++) {
-      l.ctx.fillText(lines[i], anchor.x, anchor.y + i * Math.round(size * 1.2));
-    }
+    paintText(l.ctx, txt, S.textAnchor || { x: 2, y: 2 }, size);
     l.ctx.restore();
     pushHistory(); render(); renderLayers();
     toast('Text added');
   }
 
-  /* -------------------------------------------------------------- file / IO */
+  /* ---------------------------------------------------------------------- 3D */
+
+  function textMaskCanvas(txt, size, anchor) {
+    var cv = document.createElement('canvas');
+    cv.width = S.w; cv.height = S.h;
+    var c = cv.getContext('2d');
+    c.fillStyle = '#ffffff';
+    paintText(c, txt, anchor, size);
+    return cv;
+  }
+
+  function add3DText() {
+    var l = guardLayer();
+    if (!l) return;
+    var txt = byId('text-content').value;
+    if (!txt.trim()) { openTab('text'); toast('Type your text in the Text tab first'); return; }
+    var size = +byId('text-size').value || 12;
+    var mask = textMaskCanvas(txt, size, S.textAnchor || { x: 2, y: 2 });
+    var img = mask.getContext('2d').getImageData(0, 0, S.w, S.h);
+
+    var depth = +byId('td-depth').value;
+    var ang = (+byId('td-angle').value) * Math.PI / 180;
+    var dx = Math.cos(ang), dy = Math.sin(ang);
+    var face = C.parseColor(S.color);
+    var sideRgb = C.parseColor(byId('td-side').value);
+    if (byId('td-shade').classList.contains('on')) sideRgb = C.shade(face, 0.55);
+
+    C.extrude(img, dx, dy, Math.max(1, depth), sideRgb, face);
+
+    var out = document.createElement('canvas');
+    out.width = S.w; out.height = S.h;
+    out.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(img.data), S.w, S.h), 0, 0);
+    l.ctx.drawImage(out, 0, 0);
+    pushHistory(); render(); renderLayers();
+    toast('3D text added');
+  }
+
+  function apply3DImage() {
+    var got = readLayer();
+    if (!got) return;
+    var img = got.img;
+    var extrudeDepth = +byId('td-extrude').value;
+    if (extrudeDepth > 0) {
+      var ang = (+byId('td-img-angle').value) * Math.PI / 180;
+      C.extrude(img, Math.cos(ang), Math.sin(ang), extrudeDepth, C.shade(C.parseColor(S.color), 0.55), null);
+    }
+    C.perspective(img, {
+      rotateY: +byId('td-rotate-y').value,
+      tiltX: +byId('td-tilt-x').value
+    });
+    commitLayer(got.layer, img);
+    toast('3D applied');
+  }
+
+  function set3DMode(mode) {
+    S.mode3d = mode;
+    $$('#mode-3d .seg').forEach(function (b) { b.classList.toggle('active', b.dataset.mode === mode); });
+    $$('.mode-block').forEach(function (b) { b.hidden = b.dataset.block !== mode; });
+  }
+
+  /* ------------------------------------------------------------------ file IO */
 
   function newDoc(w, h) {
     S.w = w; S.h = h;
@@ -824,15 +884,15 @@
     S.active = 0;
     S.sel = null; S.floating = null; S.preview = null; S.fxBase = null;
     S.history = []; S.hpos = -1;
-    $('#resize-w').value = w;
-    $('#resize-h').value = h;
+    byId('resize-w').value = w;
+    byId('resize-h').value = h;
     fitZoom(); render(); renderLayers(); updateStatus();
     pushHistory();
   }
 
   function projectObject() {
     return {
-      app: 'pixelstudio', version: 1,
+      app: 'pixelstudio', version: 2,
       w: S.w, h: S.h,
       palette: S.palette.slice(),
       layers: S.layers.map(function (l) {
@@ -863,35 +923,29 @@
         l.ctx.imageSmoothingEnabled = false;
         l.ctx.clearRect(0, 0, S.w, S.h);
         l.ctx.drawImage(im, 0, 0, S.w, S.h);
-        pending--;
-        if (pending <= 0) {
+        if (--pending <= 0) {
           S.history = []; S.hpos = -1;
-          fitZoom(); render(); renderLayers(); updateStatus();
-          pushHistory();
+          fitZoom(); render(); renderLayers(); updateStatus(); pushHistory();
           toast('Project loaded');
         }
       };
-      im.onerror = function () {
-        pending--;
-        if (pending <= 0) { render(); renderLayers(); }
-      };
+      im.onerror = function () { if (--pending <= 0) { render(); renderLayers(); } };
       im.src = obj.layers[i].data;
     });
   }
 
-  var autosaveTimer = null;
   function queueAutosave() {
-    if (!S.ready) return;            // never overwrite an existing autosave on load
+    if (!S.ready) return;
     clearTimeout(autosaveTimer);
     autosaveTimer = setTimeout(function () {
       try {
         localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(projectObject()));
         var d = new Date();
-        $('#autosave-hint').textContent = 'Autosave: ' +
+        byId('autosave-hint').textContent = 'Autosave: ' +
           ('0' + d.getHours()).slice(-2) + ':' + ('0' + d.getMinutes()).slice(-2) +
           ':' + ('0' + d.getSeconds()).slice(-2);
       } catch (err) {
-        $('#autosave-hint').textContent = 'Autosave: unavailable (storage full)';
+        byId('autosave-hint').textContent = 'Autosave: unavailable (storage full)';
       }
     }, 900);
   }
@@ -903,7 +957,7 @@
     c.imageSmoothingEnabled = false;
     c.drawImage(composite(), 0, 0, cv.width, cv.height);
     cv.toBlob(function (blob) {
-      download(blob, filename || 'pixelstudio.png');
+      saveBlob(blob, filename || 'pixelstudio.png');
       toast('Exported ' + cv.width + '×' + cv.height + ' PNG');
     }, 'image/png');
   }
@@ -915,167 +969,183 @@
       var sc = Math.min(S.w / im.width, S.h / im.height);
       var dw = Math.max(1, Math.round(im.width * sc));
       var dh = Math.max(1, Math.round(im.height * sc));
-      var ox = Math.round((S.w - dw) / 2);
-      var oy = Math.round((S.h - dh) / 2);
-      var l = mkLayer(file.name.replace(/\.[^.]+$/, '').slice(0, 20) || 'Imported');
+      var l = mkLayer((file.name || 'Image').replace(/\.[^.]+$/, '').slice(0, 18) || 'Image');
       l.ctx.imageSmoothingEnabled = false;
-      l.ctx.drawImage(im, 0, 0, im.width, im.height, ox, oy, dw, dh);
+      l.ctx.drawImage(im, 0, 0, im.width, im.height,
+        Math.round((S.w - dw) / 2), Math.round((S.h - dh) / 2), dw, dh);
       S.layers.splice(S.active + 1, 0, l);
       S.active++;
       URL.revokeObjectURL(url);
       pushHistory(); render(); renderLayers(); updateStatus();
-      toast('Imported — reduce colours in the Palette panel for pixel art');
+      toast('Imported — try Palette → Reduce for pixel art');
     };
     im.onerror = function () { toast('Could not read that image'); URL.revokeObjectURL(url); };
     im.src = url;
   }
 
-  /* ------------------------------------------------------------------- wiring */
+  /* -------------------------------------------------------------------- tabs */
+
+  function openTab(name) {
+    S.tab = name;
+    $$('#tabs .tab').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === name); });
+    $$('.pane').forEach(function (p) { p.classList.toggle('active', p.dataset.pane === name); });
+    byId('side').classList.add('open');
+  }
+
+  function toggleTab(name) {
+    var side = byId('side');
+    var isMobile = window.matchMedia('(max-width: 880px)').matches;
+    if (isMobile && S.tab === name && side.classList.contains('open')) {
+      side.classList.remove('open');
+      return;
+    }
+    openTab(name);
+  }
+
+  /* ------------------------------------------------------------------ wiring */
 
   function bindUI() {
-    // tools
-    $$('.tool').forEach(function (b) {
-      b.onclick = function () {
-        S.tool = b.dataset.tool;
-        $$('.tool').forEach(function (x) { x.classList.toggle('active', x === b); });
-        stage.style.cursor = (S.tool === 'hand') ? 'grab' : (S.tool === 'text' ? 'text' : 'crosshair');
-      };
-    });
+    screen = byId('screen');
+    screenCtx = screen.getContext('2d');
+    stage = byId('stage');
+    stageWrap = byId('stage-wrap');
 
-    // file buttons
-    $('#btn-new').onclick = function () {
-      modal('New document',
-        '<div class="row"><label>Width</label><input type="number" id="nw" min="1" max="1024" value="' + S.w + '"></div>' +
-        '<div class="row"><label>Height</label><input type="number" id="nh" min="1" max="1024" value="' + S.h + '"></div>' +
-        '<div class="presets-row" id="presets">' +
-        [16, 32, 48, 64, 128, 256, 512].map(function (v) { return '<button class="btn" data-p="' + v + '">' + v + '²</button>'; }).join('') +
-        '</div><div class="hint">Changing the size starts a fresh document with one empty layer.</div>',
-        function (ov) {
-          var w = +$('#nw', ov).value || 64, h = +$('#nh', ov).value || 64;
-          newDoc(Math.max(1, Math.min(1024, w)), Math.max(1, Math.min(1024, h)));
-          toast('New ' + S.w + '×' + S.h + ' document');
-        }, 'Create');
-      $$('#presets button').forEach(function (b) {
-        b.onclick = function () {
-          $('#nw').value = b.dataset.p;
-          $('#nh').value = b.dataset.p;
-        };
-      });
-    };
-
-    $('#btn-open').onclick = function () { $('#file-open').click(); };
-    $('#file-open').onchange = function (e) {
-      var f = e.target.files[0];
-      if (!f) return;
-      var fr = new FileReader();
-      fr.onload = function () {
-        try { loadProject(JSON.parse(fr.result)); }
-        catch (err) { toast('That file is not a valid project'); }
-      };
-      fr.readAsText(f);
-      e.target.value = '';
-    };
-
-    $('#btn-save').onclick = function () {
-      var blob = new Blob([JSON.stringify(projectObject())], { type: 'application/json' });
-      download(blob, 'pixelstudio-project.json');
-      toast('Project saved');
-    };
-
-    $('#btn-import').onclick = function () { $('#file-import').click(); };
-    $('#file-import').onchange = function (e) {
-      var f = e.target.files[0];
-      if (f) importImage(f);
-      e.target.value = '';
-    };
-
-    $('#btn-export').onclick = function () {
-      modal('Export PNG',
-        '<div class="row"><label>Scale</label><select id="ex-scale">' +
-        [1, 2, 4, 8, 10, 16, 20].map(function (s) {
-          return '<option value="' + s + '"' + (s === 8 ? ' selected' : '') + '>' + s + '× (' + (S.w * s) + '×' + (S.h * s) + ')</option>';
-        }).join('') + '</select></div>' +
-        '<div class="row"><label>Name</label><input type="text" id="ex-name" value="pixelstudio"></div>' +
-        '<div class="hint">Nearest-neighbour scaling keeps the pixels sharp.</div>',
-        function (ov) {
-          var s = +$('#ex-scale', ov).value || 1;
-          var name = ($('#ex-name', ov).value || 'pixelstudio').replace(/[^\w\-]+/g, '-');
-          exportPNG(s, name + '.png');
-        }, 'Download');
-    };
-
-    $('#btn-undo').onclick = undo;
-    $('#btn-redo').onclick = redo;
-
-    $('#zoom-in').onclick = function () { setZoom(effZoom() + 1); };
-    $('#zoom-out').onclick = function () { setZoom(effZoom() - 1); };
-    $('#zoom-fit').onclick = function () { S.panX = 0; S.panY = 0; stage.style.transform = ''; fitZoom(); };
-
-    viewport.addEventListener('wheel', function (e) {
-      if (!e.ctrlKey && !e.metaKey && Math.abs(e.deltaY) < 4) return;
-      e.preventDefault();
-      setZoom(effZoom() + (e.deltaY < 0 ? 1 : -1));
-    }, { passive: false });
-
-    // canvas pointer events
     screen.addEventListener('pointerdown', onDown);
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     screen.addEventListener('contextmenu', function (e) { e.preventDefault(); });
 
-    // colour
-    $('#hex-input').onchange = function () { setColor(this.value); };
-    $('#color-input').oninput = function () { setColor(this.value); };
-    $('#swap-colors').onclick = function () {
-      var t = S.color; S.color = S.color2; S.color2 = t;
-      setColor(S.color); setColor(S.color2, true);
-    };
-    $('#palette-select').onchange = function () { loadPalette(this.value); };
-    $('#add-swatch').onclick = function () {
-      if (S.palette.indexOf(S.color) === -1) { S.palette.push(S.color); renderPalette(); toast('Added to palette'); }
-    };
-    $('#reset-palette').onclick = function () { loadPalette($('#palette-select').value); };
+    // tools
+    $$('.tool[data-tool]').forEach(function (b) {
+      b.onclick = function () {
+        S.tool = b.dataset.tool;
+        $$('.tool[data-tool]').forEach(function (x) { x.classList.toggle('active', x === b); });
+        stage.style.cursor = S.tool === 'hand' ? 'grab' : (S.tool === 'text' ? 'text' : 'crosshair');
+      };
+    });
 
-    // brush
-    $('#brush-size').oninput = function () {
+    // top bar
+    on('btn-undo', 'click', undo);
+    on('btn-redo', 'click', redo);
+    on('btn-menu', 'click', function (e) {
+      e.stopPropagation();
+      var pop = byId('menu-pop');
+      pop.hidden = !pop.hidden;
+    });
+    document.addEventListener('click', function (e) {
+      var pop = byId('menu-pop');
+      if (!pop.hidden && !pop.contains(e.target) && e.target.id !== 'btn-menu') pop.hidden = true;
+    });
+    on('btn-zen', 'click', function () {
+      var app = byId('app');
+      var zen = app.classList.toggle('zen');
+      byId('btn-zen').classList.toggle('on', zen);
+      if (zen && document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(function () {});
+      } else if (!zen && document.exitFullscreen && document.fullscreenElement) {
+        document.exitFullscreen().catch(function () {});
+      }
+      setTimeout(fitZoom, 120);
+    });
+    on('doc-chip', 'click', function () { openTab('canvas'); });
+
+    // menu items
+    on('m-new', 'click', function () { byId('menu-pop').hidden = true; newDocDialog(); });
+    on('m-open', 'click', function () { byId('menu-pop').hidden = true; byId('file-open').click(); });
+    on('m-save', 'click', function () {
+      byId('menu-pop').hidden = true;
+      saveBlob(new Blob([JSON.stringify(projectObject())], { type: 'application/json' }), 'pixelstudio-project.json');
+      toast('Project saved');
+    });
+    on('m-import', 'click', function () { byId('menu-pop').hidden = true; byId('file-import').click(); });
+    on('m-export', 'click', function () { byId('menu-pop').hidden = true; exportDialog(); });
+    on('m-restore', 'click', function () {
+      byId('menu-pop').hidden = true;
+      var raw = localStorage.getItem(AUTOSAVE_KEY);
+      if (!raw) { toast('No autosave found'); return; }
+      try { loadProject(JSON.parse(raw)); } catch (err) { toast('Autosave is unreadable'); }
+    });
+    on('m-help', 'click', function () {
+      byId('menu-pop').hidden = true;
+      modal('Keyboard shortcuts',
+        '<div class="hint" style="line-height:1.9;font-size:12px">' +
+        '<b>B</b> pencil · <b>E</b> eraser · <b>G</b> fill · <b>I</b> eyedropper<br>' +
+        '<b>L</b> line · <b>R</b> rectangle · <b>O</b> ellipse<br>' +
+        '<b>M</b> select · <b>T</b> text · <b>H</b> pan · <b>X</b> swap colours<br>' +
+        '<b>[</b> <b>]</b> brush size · <b>+</b> <b>−</b> zoom · <b>0</b> fit<br>' +
+        '<b>Ctrl+Z</b> undo · <b>Ctrl+Shift+Z</b> redo · <b>Ctrl+A</b> select all<br>' +
+        '<b>Delete</b> clear selection · <b>Esc</b> deselect<br><br>' +
+        'Right-click draws with the secondary colour.</div>', function () {}, 'Close');
+    });
+
+    // tabs
+    $$('#tabs .tab').forEach(function (b) { b.onclick = function () { toggleTab(b.dataset.tab); }; });
+
+    // quickbar
+    on('q-brush', 'input', function () {
       S.brush = +this.value;
-      $('#brush-size-val').textContent = S.brush;
-    };
-    $('#brush-opacity').oninput = function () {
+      byId('q-brush-val').textContent = this.value;
+    });
+    on('q-opacity', 'input', function () {
       S.opacity = +this.value / 100;
-      $('#brush-opacity-val').textContent = this.value;
-    };
-    $('#sym-x').onchange = function () { S.symX = this.checked; };
-    $('#sym-y').onchange = function () { S.symY = this.checked; };
-    $('#fill-shapes').onchange = function () { S.fillShapes = this.checked; };
-    $('#show-grid').onchange = function () { S.showGrid = this.checked; render(); };
-    $('#tolerance').oninput = function () {
-      S.tolerance = +this.value;
-      $('#tolerance-val').textContent = this.value;
-    };
+      byId('q-opacity-val').textContent = this.value;
+    });
+    on('q-mirror-x', 'click', function () {
+      S.symX = !S.symX;
+      this.classList.toggle('on', S.symX);
+    });
+    on('q-mirror-y', 'click', function () {
+      S.symY = !S.symY;
+      this.classList.toggle('on', S.symY);
+    });
+    on('q-grid', 'click', function () {
+      S.showGrid = !S.showGrid;
+      this.classList.toggle('on', S.showGrid);
+      render();
+    });
+    on('zoom-in', 'click', function () { setZoom(effZoom() + 1); });
+    on('zoom-out', 'click', function () { setZoom(effZoom() - 1); });
+    on('zoom-fit', 'click', fitZoom);
+    stageWrap.addEventListener('wheel', function (e) {
+      if (!e.ctrlKey && !e.metaKey && Math.abs(e.deltaY) < 4) return;
+      e.preventDefault();
+      setZoom(effZoom() + (e.deltaY < 0 ? 1 : -1));
+    }, { passive: false });
+
+    // colour
+    on('hex-input', 'change', function () { setColor(this.value); });
+    on('color-input', 'input', function () { setColor(this.value); });
+    on('swap-colors', 'click', function () { swapColours(); });
+    on('rail-colours', 'click', function () { swapColours(); });
+    on('palette-select', 'change', function () { loadPalette(this.value); });
+    on('add-swatch', 'click', function () {
+      if (S.palette.indexOf(S.color) === -1) { S.palette.push(S.color); renderPalette(); toast('Added to palette'); }
+    });
+    on('reset-palette', 'click', function () { loadPalette(byId('palette-select').value); });
 
     // layers
-    $('#layer-add').onclick = addLayer;
-    $('#layer-dup').onclick = duplicateLayer;
-    $('#layer-del').onclick = deleteLayer;
-    $('#layer-up').onclick = function () { moveLayer(1); };
-    $('#layer-down').onclick = function () { moveLayer(-1); };
-    $('#layer-merge').onclick = mergeDown;
-    $('#layer-clear').onclick = clearLayer;
-    $('#layer-opacity').oninput = function () {
+    on('layer-add', 'click', addLayer);
+    on('layer-dup', 'click', duplicateLayer);
+    on('layer-del', 'click', deleteLayer);
+    on('layer-up', 'click', function () { moveLayer(1); });
+    on('layer-down', 'click', function () { moveLayer(-1); });
+    on('layer-merge', 'click', mergeDown);
+    on('layer-clear', 'click', clearLayer);
+    on('layer-opacity', 'input', function () {
       var l = activeLayer();
       if (!l) return;
       l.opacity = +this.value / 100;
-      $('#layer-opacity-val').textContent = this.value;
+      byId('layer-opacity-val').textContent = this.value;
       render();
-    };
-    $('#layer-opacity').onchange = function () { pushHistory(); };
+    });
+    on('layer-opacity', 'change', function () { pushHistory(); renderLayers(); });
 
     // adjust sliders
     ['fx-brightness', 'fx-contrast', 'fx-saturation', 'fx-hue'].forEach(function (id) {
-      var el = $('#' + id);
+      var el = byId(id);
+      if (!el) return;
       el.addEventListener('input', function () {
-        $('#' + id + '-val').textContent = el.value;
+        byId(id + '-val').textContent = el.value;
         applyAdjust(true);
       });
       el.addEventListener('change', function () {
@@ -1083,47 +1153,158 @@
         S.fxBase = null;
       });
     });
-    $('#fx-apply').onclick = function () {
+    on('fx-apply', 'click', function () {
       if (S.fxBase) { pushHistory(); S.fxBase = null; toast('Adjustments applied'); }
-    };
-    $('#fx-reset').onclick = function () { resetAdjust(false); };
-
-    // effects
-    $$('[data-fx]').forEach(function (b) {
-      b.onclick = function () { runEffect(b.dataset.fx); };
+      else toast('Move a slider first');
     });
-    $('#fx-levels').oninput = function () { $('#fx-levels-val').textContent = this.value; };
-    $('#fx-blur').oninput = function () { $('#fx-blur-val').textContent = this.value; };
-    $('#fx-noise').oninput = function () { $('#fx-noise-val').textContent = this.value; };
+    on('fx-reset', 'click', function () { resetAdjust(); });
+
+    // filters
+    $$('[data-fx]').forEach(function (b) { b.onclick = function () { runEffect(b.dataset.fx); }; });
+    [['fx-levels', 'fx-levels-val'], ['fx-blur', 'fx-blur-val'], ['fx-noise', 'fx-noise-val'],
+     ['outline-width', 'outline-width-val'], ['shadow-dx', 'shadow-dx-val'], ['shadow-dy', 'shadow-dy-val'],
+     ['text-size', 'text-size-val'], ['td-depth', 'td-depth-val'], ['td-angle', 'td-angle-val'],
+     ['td-rotate-y', 'td-rotate-y-val'], ['td-tilt-x', 'td-tilt-x-val'], ['td-extrude', 'td-extrude-val'],
+     ['td-img-angle', 'td-img-angle-val']].forEach(function (pair) {
+      var el = byId(pair[0]);
+      if (el) el.addEventListener('input', function () { byId(pair[1]).textContent = el.value; });
+    });
 
     // palette & dither
-    $('#do-quantize').onclick = function () { applyPaletteToLayer('quantize'); };
-    $('#do-dither-fs').onclick = function () { applyPaletteToLayer('fs'); };
-    $('#do-dither-bayer').onclick = function () { applyPaletteToLayer('bayer'); };
+    on('do-quantize', 'click', function () { applyPaletteToLayer('quantize'); });
+    on('do-dither-fs', 'click', function () { applyPaletteToLayer('fs'); });
+    on('do-dither-bayer', 'click', function () { applyPaletteToLayer('bayer'); });
 
     // text
-    $('#text-add').onclick = addText;
-    $('#text-clear').onclick = function () { $('#text-content').value = ''; };
+    on('text-add', 'click', addText);
+    on('text-bold', 'click', function () {
+      S.text.bold = !S.text.bold;
+      this.classList.toggle('on', S.text.bold);
+    });
+    on('text-italic', 'click', function () {
+      S.text.italic = !S.text.italic;
+      this.classList.toggle('on', S.text.italic);
+    });
+    on('text-align', 'click', function () {
+      S.fillShapes = !S.fillShapes;
+      this.classList.toggle('on', S.fillShapes);
+      this.textContent = S.fillShapes ? 'Filled' : 'Left';
+      toast(S.fillShapes ? 'Shapes will be filled' : 'Shapes will be outlines');
+    });
 
-    // canvas ops
-    $('#doc-fliph').onclick = function () { transformDoc('flip-h'); };
-    $('#doc-flipv').onclick = function () { transformDoc('flip-v'); };
-    $('#doc-rot-cw').onclick = function () { transformDoc('rot-cw'); };
-    $('#doc-rot-ccw').onclick = function () { transformDoc('rot-ccw'); };
-    $('#do-resize').onclick = function () {
-      resizeDoc(+$('#resize-w').value, +$('#resize-h').value);
-      toast('Canvas resized to ' + S.w + '×' + S.h);
-    };
-    $('#btn-restore').onclick = function () {
+    // 3D
+    $$('#mode-3d .seg').forEach(function (b) { b.onclick = function () { set3DMode(b.dataset.mode); }; });
+    on('td-shade', 'click', function () { this.classList.toggle('on'); });
+    on('td-add', 'click', add3DText);
+    on('td-apply', 'click', apply3DImage);
+    on('td-reset', 'click', function () {
+      [['td-rotate-y', 0], ['td-tilt-x', 0], ['td-extrude', 0], ['td-img-angle', 225]].forEach(function (p) {
+        byId(p[0]).value = p[1];
+        byId(p[0] + '-val').textContent = p[1];
+      });
+    });
+    $$('[data-3d]').forEach(function (b) {
+      b.onclick = function () {
+        var preset = b.dataset['3d'];
+        var depth = preset === 'deep' ? 14 : (preset === 'iso' ? 10 : 6);
+        var angle = preset === 'deep' ? 235 : (preset === 'iso' ? 205 : 225);
+        byId('td-depth').value = depth;
+        byId('td-depth-val').textContent = depth;
+        byId('td-angle').value = angle;
+        byId('td-angle-val').textContent = angle;
+        toast('Preset: ' + preset);
+      };
+    });
+
+    // canvas
+    on('do-resize', 'click', function () {
+      resizeDoc(+byId('resize-w').value, +byId('resize-h').value);
+      toast('Canvas ' + S.w + '×' + S.h);
+    });
+    on('do-new', 'click', newDocDialog);
+    on('doc-fliph', 'click', function () { transformDoc('flip-h'); });
+    on('doc-flipv', 'click', function () { transformDoc('flip-v'); });
+    on('doc-rot-cw', 'click', function () { transformDoc('rot-cw'); });
+    on('doc-rot-ccw', 'click', function () { transformDoc('rot-ccw'); });
+    on('btn-restore', 'click', function () {
       var raw = localStorage.getItem(AUTOSAVE_KEY);
       if (!raw) { toast('No autosave found'); return; }
       try { loadProject(JSON.parse(raw)); } catch (err) { toast('Autosave is unreadable'); }
-    };
+    });
 
-    // keyboard
+    // files
+    on('file-import', 'change', function (e) {
+      var f = e.target.files[0];
+      if (f) importImage(f);
+      e.target.value = '';
+    });
+    on('file-open', 'change', function (e) {
+      var f = e.target.files[0];
+      if (!f) return;
+      var fr = new FileReader();
+      fr.onload = function () {
+        try { loadProject(JSON.parse(fr.result)); } catch (err) { toast('That file is not a project'); }
+      };
+      fr.readAsText(f);
+      e.target.value = '';
+    });
+
+    // presets
+    var presets = byId('presets-row');
+    [16, 32, 48, 64, 128, 256, 512].forEach(function (v) {
+      var b = document.createElement('button');
+      b.className = 'btn';
+      b.textContent = v + '²';
+      b.onclick = function () {
+        byId('resize-w').value = v;
+        byId('resize-h').value = v;
+        resizeDoc(v, v);
+      };
+      presets.appendChild(b);
+    });
+
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', function (e) { if (e.code === 'Space') S.spaceDown = false; });
+    window.addEventListener('resize', function () { render(); });
   }
+
+  function swapColours() {
+    var t = S.color;
+    S.color = S.color2;
+    S.color2 = t;
+    setColor(S.color);
+    setColor(S.color2, true);
+  }
+
+  function newDocDialog() {
+    modal('New document',
+      '<div class="row"><label>Width</label><input type="number" id="dlg-w" min="1" max="1024" value="' + S.w + '"></div>' +
+      '<div class="row"><label>Height</label><input type="number" id="dlg-h" min="1" max="1024" value="' + S.h + '"></div>' +
+      '<p class="hint">Starts a fresh document with one empty layer.</p>',
+      function (ov) {
+        var w = Math.max(1, Math.min(1024, +$('#dlg-w', ov).value || 64));
+        var h = Math.max(1, Math.min(1024, +$('#dlg-h', ov).value || 64));
+        newDoc(w, h);
+        toast('New ' + w + '×' + h + ' document');
+      }, 'Create');
+  }
+
+  function exportDialog() {
+    modal('Export PNG',
+      '<div class="row"><label>Scale</label><select id="dlg-scale">' +
+      [1, 2, 4, 8, 10, 16, 20].map(function (s) {
+        return '<option value="' + s + '"' + (s === 8 ? ' selected' : '') + '>' + s + '× (' + (S.w * s) + '×' + (S.h * s) + ')</option>';
+      }).join('') + '</select></div>' +
+      '<div class="row"><label>Name</label><input type="text" id="dlg-name" value="pixelstudio"></div>' +
+      '<p class="hint">Nearest-neighbour scaling keeps the pixels sharp.</p>',
+      function (ov) {
+        var s = +$('#dlg-scale', ov).value || 1;
+        var name = ($('#dlg-name', ov).value || 'pixelstudio').replace(/[^\w\-]+/g, '-');
+        exportPNG(s, name + '.png');
+      }, 'Download');
+  }
+
+  /* ---------------------------------------------------------------- keyboard */
 
   var TOOL_KEYS = {
     b: 'pencil', p: 'pencil', e: 'eraser', g: 'bucket', l: 'line',
@@ -1133,38 +1314,29 @@
   function onKeyDown(e) {
     var tag = (e.target.tagName || '').toLowerCase();
     if (tag === 'input' || tag === 'textarea' || tag === 'select') return;
-
-    if (e.code === 'Space') { S.spaceDown = true; e.preventDefault(); return; }
     var k = e.key.toLowerCase();
 
-    if ((e.ctrlKey || e.metaKey) && k === 'z') {
-      e.preventDefault();
-      if (e.shiftKey) redo(); else undo();
+    if (e.ctrlKey || e.metaKey) {
+      if (k === 'z') { e.preventDefault(); if (e.shiftKey) redo(); else undo(); return; }
+      if (k === 'y') { e.preventDefault(); redo(); return; }
+      if (k === 's') {
+        e.preventDefault();
+        saveBlob(new Blob([JSON.stringify(projectObject())], { type: 'application/json' }), 'pixelstudio-project.json');
+        return;
+      }
+      if (k === 'a') { e.preventDefault(); S.sel = { x: 0, y: 0, w: S.w, h: S.h }; render(); return; }
       return;
     }
-    if ((e.ctrlKey || e.metaKey) && k === 'y') { e.preventDefault(); redo(); return; }
-    if ((e.ctrlKey || e.metaKey) && k === 's') {
-      e.preventDefault();
-      var blob = new Blob([JSON.stringify(projectObject())], { type: 'application/json' });
-      download(blob, 'pixelstudio-project.json');
-      return;
-    }
-    if ((e.ctrlKey || e.metaKey) && k === 'a') {
-      e.preventDefault();
-      S.sel = { x: 0, y: 0, w: S.w, h: S.h };
-      render();
-      return;
-    }
-    if (e.ctrlKey || e.metaKey) return;
 
+    if (e.code === 'Space') { S.spaceDown = true; e.preventDefault(); return; }
     if (TOOL_KEYS[k]) {
       S.tool = TOOL_KEYS[k];
-      $$('.tool').forEach(function (x) { x.classList.toggle('active', x.dataset.tool === S.tool); });
+      $$('.tool[data-tool]').forEach(function (x) { x.classList.toggle('active', x.dataset.tool === S.tool); });
       return;
     }
-    if (k === 'x') { $('#swap-colors').click(); return; }
-    if (k === '[') { S.brush = Math.max(1, S.brush - 1); $('#brush-size').value = S.brush; $('#brush-size-val').textContent = S.brush; return; }
-    if (k === ']') { S.brush = Math.min(24, S.brush + 1); $('#brush-size').value = S.brush; $('#brush-size-val').textContent = S.brush; return; }
+    if (k === 'x') { swapColours(); return; }
+    if (k === '[') { S.brush = Math.max(1, S.brush - 1); byId('q-brush').value = S.brush; byId('q-brush-val').textContent = S.brush; return; }
+    if (k === ']') { S.brush = Math.min(24, S.brush + 1); byId('q-brush').value = S.brush; byId('q-brush-val').textContent = S.brush; return; }
     if (k === '+' || k === '=') { setZoom(effZoom() + 1); return; }
     if (k === '-') { setZoom(effZoom() - 1); return; }
     if (k === '0') { fitZoom(); return; }
@@ -1172,18 +1344,27 @@
     if (k === 'delete' || k === 'backspace') { e.preventDefault(); clearSelection(); return; }
   }
 
-  /* --------------------------------------------------------------------- boot */
+  /* -------------------------------------------------------------------- boot */
 
   function boot() {
     fillPaletteSelects();
     loadPalette('db16');
+    bindUI();
     setColor('#1b1b1f');
     setColor('#ffffff', true);
-    bindUI();
+    set3DMode('text');
     newDoc(64, 64);
     S.ready = true;
-    window.addEventListener('resize', function () { render(); });
+    if (window.matchMedia('(min-width: 881px)').matches) openTab('colour');
   }
+
+  /* Small read-only hook so the automated UI tests can inspect pixels. */
+  window.PS = {
+    get state() { return S; },
+    composite: composite,
+    activeLayer: activeLayer,
+    render: render
+  };
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
