@@ -221,17 +221,18 @@
     return compCv;
   }
 
-  function drawChecker(ctx, W, H) {
-    if (!checkerPattern) {
-      var p = document.createElement('canvas');
-      p.width = 16; p.height = 16;
-      var pc = p.getContext('2d');
-      pc.fillStyle = '#171b23'; pc.fillRect(0, 0, 16, 16);
-      pc.fillStyle = '#212736'; pc.fillRect(0, 0, 8, 8); pc.fillRect(8, 8, 8, 8);
-      checkerPattern = ctx.createPattern(p, 'repeat');
-    }
-    ctx.fillStyle = checkerPattern;
+  /* Transparency checkerboard drawn in document pixels so it scales with zoom. */
+  function drawChecker(ctx, W, H, z) {
+    var cell = Math.max(3, 8 * z);
+    ctx.fillStyle = '#1b2029';
     ctx.fillRect(0, 0, W, H);
+    ctx.fillStyle = '#242b36';
+    for (var y = 0; y < H; y += cell) {
+      for (var x = 0; x < W; x += cell) {
+        if (((x / cell) + (y / cell)) % 2 === 0) continue;
+        ctx.fillRect(x, y, Math.min(cell, W - x), Math.min(cell, H - y));
+      }
+    }
   }
 
   function drawShape(c, p) {
@@ -272,7 +273,7 @@
     screenCtx.clearRect(0, 0, W, H);
     screenCtx.imageSmoothingEnabled = false;
 
-    drawChecker(screenCtx, W, H);
+    drawChecker(screenCtx, W, H, z);
     screenCtx.drawImage(composite(), 0, 0, W, H);
 
     if (S.floating) {
@@ -289,9 +290,9 @@
       screenCtx.drawImage(prevCv, 0, 0, W, H);
     }
 
-    if (S.showGrid && z >= 5) {
+    if (S.showGrid && z >= 5 && z <= 24) {
       screenCtx.save();
-      screenCtx.strokeStyle = 'rgba(255,255,255,0.09)';
+      screenCtx.strokeStyle = 'rgba(255,255,255,0.07)';
       screenCtx.lineWidth = 1;
       screenCtx.beginPath();
       for (var x = 1; x < S.w; x++) { screenCtx.moveTo(x * z + 0.5, 0); screenCtx.lineTo(x * z + 0.5, H); }
@@ -566,10 +567,7 @@
         render();
       }
     } else if (S.tool === 'text') {
-      S.textAnchor = { x: p.x, y: p.y };
-      openTab('text');
-      byId('text-content').focus();
-      toast('Text will start at ' + p.x + ', ' + p.y);
+      openTextOverlay(p);
     }
   }
 
@@ -732,8 +730,8 @@
   }
 
   function resizeDoc(nw, nh) {
-    nw = Math.max(1, Math.min(1024, Math.round(nw || S.w)));
-    nh = Math.max(1, Math.min(1024, Math.round(nh || S.h)));
+    nw = Math.max(1, Math.min(2048, Math.round(nw || S.w)));
+    nh = Math.max(1, Math.min(2048, Math.round(nh || S.h)));
     S.layers.forEach(function (l) {
       var cv = offscreen(nw, nh);
       cv.getContext('2d').drawImage(l.canvas, 0, 0, S.w, S.h, 0, 0, nw, nh);
@@ -866,6 +864,23 @@
       };
       box.appendChild(b);
     });
+    markFontAvailability();
+  }
+
+  /* Dims any font the browser cannot actually render. */
+  function markFontAvailability() {
+    if (!document.fonts || !document.fonts.check) return;
+    var missing = 0;
+    $$('#font-list .font-item').forEach(function (el, i) {
+      var f = FONTS[i];
+      if (!f) return;
+      var ok = true;
+      try { ok = document.fonts.check('16px ' + f.css.split(',')[0].trim()); } catch (err) { ok = true; }
+      el.classList.toggle('unavailable', !ok);
+      if (!ok) missing++;
+    });
+    var note = byId('font-note');
+    if (note) note.textContent = missing ? missing + ' fonts need internet' : '';
   }
 
   /* Draws one line, optionally curved, into ctx. */
@@ -1047,6 +1062,23 @@
       };
       box.appendChild(b);
     });
+    markFontAvailability();
+  }
+
+  /* Dims any font the browser cannot actually render. */
+  function markFontAvailability() {
+    if (!document.fonts || !document.fonts.check) return;
+    var missing = 0;
+    $$('#font-list .font-item').forEach(function (el, i) {
+      var f = FONTS[i];
+      if (!f) return;
+      var ok = true;
+      try { ok = document.fonts.check('16px ' + f.css.split(',')[0].trim()); } catch (err) { ok = true; }
+      el.classList.toggle('unavailable', !ok);
+      if (!ok) missing++;
+    });
+    var note = byId('font-note');
+    if (note) note.textContent = missing ? missing + ' fonts need internet' : '';
   }
 
   function placeSticker(atCentre) {
@@ -1065,6 +1097,35 @@
     l.ctx.restore();
     pushHistory(); render(); renderLayers();
     toast('Sticker added');
+  }
+
+  /* --------------------------------------------------------- inline text box */
+
+  function openTextOverlay(p) {
+    var ov = byId('text-overlay');
+    S.textAnchor = { x: p.x, y: p.y };
+    var z = effZoom();
+    var rect = screen.getBoundingClientRect();
+    var wrap = byId('stage-wrap').getBoundingClientRect();
+    var left = rect.left - wrap.left + p.x * z;
+    var top = rect.top - wrap.top + p.y * z;
+    ov.style.left = Math.max(4, Math.min(wrap.width - 260, left)) + 'px';
+    ov.style.top = Math.max(4, Math.min(wrap.height - 48, top)) + 'px';
+    ov.hidden = false;
+    var input = byId('text-overlay-input');
+    input.value = byId('text-content').value || '';
+    setTimeout(function () { input.focus(); input.select(); }, 30);
+  }
+
+  function closeTextOverlay(commit) {
+    var ov = byId('text-overlay');
+    if (ov.hidden) return;
+    var input = byId('text-overlay-input');
+    if (commit) {
+      byId('text-content').value = input.value;
+      if (input.value.trim()) addText();
+    }
+    ov.hidden = true;
   }
 
   /* ------------------------------------------------------------------- photo */
@@ -1466,6 +1527,38 @@
     on('bg-remove-colour', 'click', function () { removeBackground(false); });
     on('bg-remove-white', 'click', function () { removeBackground(true); });
 
+    // inline text editor
+    on('text-overlay-ok', 'click', function () { closeTextOverlay(true); });
+    on('text-overlay-cancel', 'click', function () { closeTextOverlay(false); });
+    on('text-overlay-input', 'input', function () {
+      byId('text-content').value = this.value;
+    });
+    on('text-overlay-input', 'keydown', function (e) {
+      if (e.key === 'Enter') { e.preventDefault(); closeTextOverlay(true); }
+      if (e.key === 'Escape') { e.preventDefault(); closeTextOverlay(false); }
+    });
+
+    // fonts: own font upload + availability check
+    on('font-upload-btn', 'click', function () { byId('font-upload').click(); });
+    on('font-upload', 'change', function (e) {
+      var file = e.target.files[0];
+      if (!file) return;
+      var name = (file.name || 'Custom').replace(/\.[^.]+$/, '').replace(/[^\w ]+/g, '');
+      var reader = new FileReader();
+      reader.onload = function () {
+        var face = new FontFace('PS-' + name, reader.result);
+        face.load().then(function (loaded) {
+          document.fonts.add(loaded);
+          FONTS.unshift({ name: name, css: "'PS-" + name + "', sans-serif", own: true });
+          S.text.font = "'PS-" + name + "', sans-serif";
+          renderFontList();
+          toast('Font added: ' + name);
+        }).catch(function () { toast('That font file could not be read'); });
+      };
+      reader.readAsArrayBuffer(file);
+      e.target.value = '';
+    });
+
     // photo
     on('px-make', 'click', function () { pixelize(false); });
     on('px-dither', 'click', function () { pixelize(true); });
@@ -1534,21 +1627,38 @@
     setColor(S.color2, true);
   }
 
+  var TEMPLATES = [
+    { label: 'Square 64', w: 64, h: 64 },
+    { label: 'Sprite 32', w: 32, h: 32 },
+    { label: 'Square 512', w: 512, h: 512 },
+    { label: 'Instagram 1080', w: 1080, h: 1080 },
+    { label: 'Story 1080×1920', w: 1080, h: 1920 },
+    { label: 'YouTube 1280×720', w: 1280, h: 720 },
+    { label: 'Banner 1500×500', w: 1500, h: 500 },
+    { label: 'Meme 800×600', w: 800, h: 600 },
+    { label: 'Poster 1080×1350', w: 1080, h: 1350 }
+  ];
+
   function newDocDialog() {
     modal('New document',
-      '<div class="row"><label>Width</label><input type="number" id="dlg-w" min="1" max="1024" value="' + S.w + '"></div>' +
-      '<div class="row"><label>Height</label><input type="number" id="dlg-h" min="1" max="1024" value="' + S.h + '"></div>' +
+      '<div class="row"><label>Width</label><input type="number" id="dlg-w" min="1" max="2048" value="' + S.w + '"></div>' +
+      '<div class="row"><label>Height</label><input type="number" id="dlg-h" min="1" max="2048" value="' + S.h + '"></div>' +
       '<div class="presets-row" id="dlg-presets">' +
-      [16, 32, 48, 64, 128, 256, 512].map(function (v) { return '<button class="btn" data-p="' + v + '">' + v + '²</button>'; }).join('') +
-      '</div><p class="hint">Starts a fresh document with one empty layer.</p>',
+      TEMPLATES.map(function (t, i) { return '<button class="btn" data-t="' + i + '">' + t.label + '</button>'; }).join('') +
+      '</div><p class="hint">Pick a template for banners and social posts, or type your own size.</p>',
       function (ov) {
-        var w = Math.max(1, Math.min(1024, +$('#dlg-w', ov).value || 64));
-        var h = Math.max(1, Math.min(1024, +$('#dlg-h', ov).value || 64));
+        var w = Math.max(1, Math.min(2048, +$('#dlg-w', ov).value || 64));
+        var h = Math.max(1, Math.min(2048, +$('#dlg-h', ov).value || 64));
         newDoc(w, h);
         toast('New ' + w + '×' + h + ' document');
       }, 'Create');
     $$('#dlg-presets button').forEach(function (b) {
-      b.onclick = function () { $('#dlg-w').value = b.dataset.p; $('#dlg-h').value = b.dataset.p; };
+      b.onclick = function () {
+        var t = TEMPLATES[+b.dataset.t];
+        if (!t) return;
+        $('#dlg-w').value = t.w;
+        $('#dlg-h').value = t.h;
+      };
     });
   }
 
@@ -1563,8 +1673,8 @@
       '<button class="btn" id="dlg-rot-cw">Rotate ⟳</button><button class="btn" id="dlg-rot-ccw">Rotate ⟲</button></div>' +
       '<p class="hint">Resize scales every layer with nearest-neighbour sampling.</p>',
       function (ov) {
-        var w = Math.max(1, Math.min(1024, +$('#dlg-w', ov).value || S.w));
-        var h = Math.max(1, Math.min(1024, +$('#dlg-h', ov).value || S.h));
+        var w = Math.max(1, Math.min(2048, +$('#dlg-w', ov).value || S.w));
+        var h = Math.max(1, Math.min(2048, +$('#dlg-h', ov).value || S.h));
         resizeDoc(w, h);
         toast('Canvas ' + S.w + '×' + S.h);
       }, 'Resize');
@@ -1644,6 +1754,10 @@
     renderStickerGrid();
     renderFontList();
     syncTextControls();
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(markFontAvailability);
+    }
+    setTimeout(markFontAvailability, 2500);
     newDoc(64, 64);
     S.ready = true;
     if (window.matchMedia('(min-width: 881px)').matches) openTab('text');
