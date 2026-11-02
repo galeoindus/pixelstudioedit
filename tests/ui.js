@@ -400,6 +400,19 @@ const check = (name, ok, detail) => {
   await click('#bg-auto');
   check('auto background removal runs', true);
 
+  // 13d2b AI background remover must fail gracefully when the model is unreachable
+  const hasAi = await page.evaluate(() => !!document.querySelector('#bg-ai'));
+  check('AI background button present', hasAi);
+  if (hasAi) {
+    await page.evaluate(() => document.querySelector('#bg-ai').click());
+    await new Promise(r => setTimeout(r, 2500));
+    const aiState = await page.evaluate(() => ({
+      enabled: !document.querySelector('#bg-ai').disabled,
+      note: (document.querySelector('#bg-ai-note') || {}).textContent || ''
+    }));
+    check('AI button recovers and falls back', aiState.enabled, aiState.note.slice(0, 60));
+  }
+
   // 13d3 crop to selection
   await tool('select');
   await stroke(2, 2, 12, 12);
