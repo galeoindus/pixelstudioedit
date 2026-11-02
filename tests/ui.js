@@ -30,6 +30,14 @@ const check = (name, ok, detail) => {
 
   await page.goto(FILE, { waitUntil: 'load' });
   await new Promise(r => setTimeout(r, 400));
+  // the start screen must be dismissed before the editor is usable
+  const startShown = await page.evaluate(() => { const el = document.querySelector('#start'); return !!el && !el.hidden; });
+  check('start screen shown', startShown);
+  await page.evaluate(() => document.querySelector('#start-design').click());
+  await new Promise(r => setTimeout(r, 250));
+  await page.evaluate(() => { const b = document.querySelector('.overlay [data-cancel]'); if (b) b.click(); });
+  await new Promise(r => setTimeout(r, 200));
+  check('start screen dismissed', await page.evaluate(() => document.querySelector('#start').hidden));
 
   // ---- helpers -------------------------------------------------------
   const click = async sel => {
@@ -98,7 +106,16 @@ const check = (name, ok, detail) => {
     layers: document.querySelectorAll('.layer').length,
     hook: !!window.PS
   }));
-  check('boots with all controls', boot.tools === 10 && boot.tabs === 7 && boot.panes === 7 && boot.layers === 1, JSON.stringify(boot));
+  const dupIds = await page.evaluate(() => {
+    const seen = {}, dup = [];
+    document.querySelectorAll('[id]').forEach(el => {
+      if (seen[el.id]) dup.push(el.id);
+      seen[el.id] = true;
+    });
+    return dup;
+  });
+  check('no duplicate element ids', dupIds.length === 0, dupIds.join(', '));
+  check('boots with all controls', boot.tools === 11 && boot.tabs === 7 && boot.panes === 7 && boot.layers === 1, JSON.stringify(boot));
 
   // 2 pencil / undo / redo
   await tool('pencil');
