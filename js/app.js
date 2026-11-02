@@ -173,7 +173,13 @@
     render(); renderLayers(); updateStatus();
   }
 
+  function setSaveStatus(text) {
+    var el = byId('save-status');
+    if (el) { el.textContent = text; el.classList.toggle('dirty', text !== 'Saved'); }
+  }
+
   function pushHistory() {
+    setSaveStatus('Unsaved');
     S.history = S.history.slice(0, S.hpos + 1);
     S.history.push(snapshot());
     if (S.history.length > 24) S.history.shift();
@@ -302,7 +308,9 @@
     }
 
     var selRect = S.sel;
-    if (S.drag && S.drag.type === 'sel' && S.drag.cur) selRect = normalizeRect(S.drag.start, S.drag.cur);
+    if (S.drag && (S.drag.type === 'sel' || S.drag.type === 'crop') && S.drag.cur) {
+      selRect = normalizeRect(S.drag.start, S.drag.cur);
+    }
     if (selRect && selRect.w > 0 && selRect.h > 0) {
       screenCtx.save();
       screenCtx.strokeStyle = '#6ee7b7';
@@ -333,7 +341,7 @@
     var pad = 56;
     var zx = (stageWrap.clientWidth - pad) / S.w;
     var zy = (stageWrap.clientHeight - pad) / S.h;
-    S.zoom = Math.max(1, Math.min(32, Math.floor(Math.min(zx, zy)) || 1));
+    S.zoom = Math.max(1, Math.min(16, Math.floor(Math.min(zx, zy)) || 1));
     render();
   }
 
@@ -566,6 +574,10 @@
         S.sel = null;
         render();
       }
+    } else if (S.tool === 'crop') {
+      S.drag = { type: 'crop', start: p, cur: p };
+      S.preview = null;
+      render();
     } else if (S.tool === 'text') {
       openTextOverlay(p);
     }
@@ -605,7 +617,7 @@
     } else if (S.drag.type === 'shape') {
       S.preview.x1 = p.x; S.preview.y1 = p.y;
       render();
-    } else if (S.drag.type === 'sel') {
+    } else if (S.drag.type === 'sel' || S.drag.type === 'crop') {
       S.drag.cur = p;
       render();
     } else if (S.drag.type === 'move' && S.floating) {
@@ -628,6 +640,13 @@
       if (l && S.preview) { drawShape(l.ctx, S.preview); pushHistory(); }
       S.preview = null;
       render(); renderLayers();
+    } else if (d.type === 'crop') {
+      if (d.cur) {
+        var cr = normalizeRect(d.start, d.cur);
+        if (cr.w > 1 && cr.h > 1) { S.sel = cr; cropToSelection(); }
+        else toast('Drag a larger area to crop');
+      }
+      render();
     } else if (d.type === 'sel') {
       if (d.cur) {
         var r = normalizeRect(d.start, d.cur);
@@ -1290,20 +1309,26 @@
     autosaveTimer = setTimeout(function () {
       try {
         localStorage.setItem(AUTOSAVE_KEY, JSON.stringify(projectObject()));
+        setSaveStatus('Autosaved');
       } catch (err) { /* storage full — nothing to do */ }
     }, 900);
   }
 
-  function exportPNG(scale, filename) {
+  function exportImage(scale, filename, format, quality) {
     var cv = document.createElement('canvas');
     cv.width = S.w * scale; cv.height = S.h * scale;
     var c = cv.getContext('2d');
     c.imageSmoothingEnabled = false;
+    if (format !== 'image/png') {           // JPEG has no alpha: fill white first
+      c.fillStyle = '#ffffff';
+      c.fillRect(0, 0, cv.width, cv.height);
+    }
     c.drawImage(composite(), 0, 0, cv.width, cv.height);
     cv.toBlob(function (blob) {
       saveBlob(blob, filename || 'pixelstudioedit.png');
-      toast('Exported ' + cv.width + '×' + cv.height + ' PNG');
-    }, 'image/png');
+      var kb = blob ? Math.round(blob.size / 1024) : 0;
+      toast('Exported ' + cv.width + '×' + cv.height + ' · ' + kb + ' KB');
+    }, format || 'image/png', quality);
   }
 
   function importImage(file) {
@@ -1321,7 +1346,20 @@
       S.active++;
       URL.revokeObjectURL(url);
       pushHistory(); render(); renderLayers(); updateStatus();
-      toast('Imported — try Effects → Reduce for pixel art');
+      if (S.importMode === 'photo') {
+        S.importMode = null;
+        var nw = Math.min(2048, im.width), nh = Math.min(2048, im.height);
+        if (nw !== S.w || nh !== S.h) resizeDoc(nw, nh);
+        openTab('photo');
+        toast('Photo opened — ' + S.w + '×' + S.h);
+      } else if (S.importMode === 'pixel') {
+        S.importMode = null;
+        openTab('photo');
+        setTimeout(function () { pixelize(false); }, 60);
+        toast('Pixel art ready — tune Block and palette in the Photo tab');
+      } else {
+        toast('Imported — try Photo → Make pixel art');
+      }
     };
     im.onerror = function () { toast('Could not read that image'); URL.revokeObjectURL(url); };
     im.src = url;
@@ -1354,7 +1392,52 @@
     stage = byId('stage');
     stageWrap = byId('stage-wrap');
 
-    screen.addEventListener('pointerdown', onDown);
+    /* Two-finger pinch to zoom and drag to pan; one finger always draws. */
+    var pointers = {};
+    var pinchStart = null;
+    function pointerList() {
+      return Object.keys(pointers).map(function (k) { return pointers[k]; });
+    }
+    function beginPinch() {
+      var pts = pointerList();
+      if (pts.length < 2) return;
+      pinchStart = {
+        dist: Math.max(1, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y)),
+        zoom: effZoom(),
+        cx: (pts[0].x + pts[1].x) / 2,
+        cy: (pts[0].y + pts[1].y) / 2,
+        sl: stageWrap.scrollLeft,
+        st: stageWrap.scrollTop
+      };
+      S.drag = null;
+      S.preview = null;
+    }
+    function updatePinch() {
+      var pts = pointerList();
+      if (!pinchStart || pts.length < 2) return;
+      var dist = Math.max(1, Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y));
+      setZoom(pinchStart.zoom * (dist / pinchStart.dist));
+      var cx = (pts[0].x + pts[1].x) / 2;
+      var cy = (pts[0].y + pts[1].y) / 2;
+      stageWrap.scrollLeft = pinchStart.sl - (cx - pinchStart.cx);
+      stageWrap.scrollTop = pinchStart.st - (cy - pinchStart.cy);
+    }
+    screen.addEventListener('pointerdown', function (e) {
+      pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+      if (Object.keys(pointers).length > 1) { beginPinch(); return; }
+      onDown(e);
+    });
+    screen.addEventListener('pointermove', function (e) {
+      if (!pointers[e.pointerId]) return;
+      pointers[e.pointerId] = { x: e.clientX, y: e.clientY };
+      if (pinchStart) { updatePinch(); return; }
+    });
+    function endPointer(e) {
+      delete pointers[e.pointerId];
+      if (Object.keys(pointers).length < 2) pinchStart = null;
+    }
+    screen.addEventListener('pointerup', endPointer);
+    screen.addEventListener('pointercancel', endPointer);
     window.addEventListener('pointermove', onMove);
     window.addEventListener('pointerup', onUp);
     screen.addEventListener('contextmenu', function (e) { e.preventDefault(); });
@@ -1528,6 +1611,22 @@
     on('bg-remove-colour', 'click', function () { removeBackground(false); });
     on('bg-remove-white', 'click', function () { removeBackground(true); });
 
+    // start screen
+    function hideStart() {
+      var st = byId('start');
+      if (st) st.hidden = true;
+    }
+    on('start-design', 'click', function () { hideStart(); newDocDialog(); });
+    on('start-photo', 'click', function () { hideStart(); S.importMode = 'photo'; byId('file-import').click(); });
+    on('start-pixel', 'click', function () { hideStart(); S.importMode = 'pixel'; byId('file-import').click(); });
+    on('start-open', 'click', function () { hideStart(); byId('file-open').click(); });
+    on('start-skip', 'click', function () {
+      hideStart();
+      var raw = localStorage.getItem(AUTOSAVE_KEY);
+      if (!raw) { toast('No previous project yet — start with Create a design'); return; }
+      try { loadProject(JSON.parse(raw)); } catch (err) { toast('Autosave is unreadable'); }
+    });
+
     // inline text editor
     on('text-overlay-ok', 'click', function () { closeTextOverlay(true); });
     on('text-overlay-cancel', 'click', function () { closeTextOverlay(false); });
@@ -1689,25 +1788,36 @@
   }
 
   function exportDialog() {
-    modal('Export PNG',
+    modal('Export image',
+      '<div class="row"><label>Format</label><select id="dlg-format">' +
+      '<option value="image/png">PNG — keeps transparency</option>' +
+      '<option value="image/jpeg">JPEG — smaller, no transparency</option>' +
+      '<option value="image/webp">WebP — smallest</option>' +
+      '</select></div>' +
       '<div class="row"><label>Scale</label><select id="dlg-scale">' +
       [1, 2, 4, 8, 10, 16, 20].map(function (s) {
-        return '<option value="' + s + '"' + (s === 8 ? ' selected' : '') + '>' + s + '× (' + (S.w * s) + '×' + (S.h * s) + ')</option>';
+        return '<option value="' + s + '"' + (s === 1 ? ' selected' : '') + '>' + s + '× (' + (S.w * s) + '×' + (S.h * s) + ')</option>';
       }).join('') + '</select></div>' +
+      '<div class="row"><label>Quality</label><input type="range" id="dlg-quality" min="40" max="100" value="92"><b id="dlg-quality-val">92</b></div>' +
       '<div class="row"><label>Name</label><input type="text" id="dlg-name" value="pixelstudioedit"></div>' +
-      '<p class="hint">Nearest-neighbour scaling keeps the pixels sharp.</p>',
+      '<p class="hint">Nearest-neighbour scaling keeps pixels sharp. Quality applies to JPEG and WebP.</p>',
       function (ov) {
-        var s = +$('#dlg-scale', ov).value || 1;
+        var scale = +$('#dlg-scale', ov).value || 1;
+        var format = $('#dlg-format', ov).value;
+        var quality = (+$('#dlg-quality', ov).value || 92) / 100;
+        var ext = format === 'image/jpeg' ? '.jpg' : (format === 'image/webp' ? '.webp' : '.png');
         var name = ($('#dlg-name', ov).value || 'pixelstudioedit').replace(/[^\w\-]+/g, '-');
-        exportPNG(s, name + '.png');
+        exportImage(scale, name + ext, format, quality);
       }, 'Download');
+    var q = byId('dlg-quality');
+    if (q) q.addEventListener('input', function () { byId('dlg-quality-val').textContent = q.value; });
   }
 
   /* ---------------------------------------------------------------- keyboard */
 
   var TOOL_KEYS = {
     b: 'pencil', p: 'pencil', e: 'eraser', g: 'bucket', l: 'line',
-    r: 'rect', o: 'ellipse', i: 'picker', m: 'select', t: 'text', h: 'hand'
+    r: 'rect', o: 'ellipse', i: 'picker', m: 'select', t: 'text', h: 'hand', c: 'crop'
   };
 
   function onKeyDown(e) {
