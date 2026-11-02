@@ -26,6 +26,10 @@ Everything is organised around one canvas:
 
 ## Features
 
+**Templates**
+- Six ready-made layouts — Poster, Quote card, Meme, Sale banner, YouTube thumbnail, Story — that open a correctly sized canvas with a background and **editable text objects** already in place (text auto-fits the canvas, even after a web font loads)
+- Available on the start screen and from the file menu
+
 **Editable objects** (text and shapes stay live, not baked pixels)
 - Text is created as an **object**: tap it in the Layers panel to select, change the words, font, size, gradient, stroke, shadow, curve or 3D depth at any time — the object updates in place
 - Drag a selected object anywhere on the canvas with the Select tool
