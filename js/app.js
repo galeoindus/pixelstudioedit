@@ -48,6 +48,7 @@
     sel: null, floating: null, preview: null, drag: null, panning: null,
     history: [], hpos: -1,
     objects: [], selectedObj: null, objSeq: 1,
+    groups: [], groupSeq: 1,
     fxBase: null, textAnchor: null,
     palette: [], ready: false, spaceDown: false,
     text: {
@@ -65,6 +66,7 @@
 
   var screen, screenCtx, stage, stageWrap;
   var bgCanvas, bgCtx, overlayCanvas, overlayCtx;
+  var maskTmp = document.createElement('canvas');
   var compCv = document.createElement('canvas');
   var compCtx = compCv.getContext('2d');
   var prevCv = document.createElement('canvas');
@@ -134,8 +136,87 @@
     cv.height = S.h;
     return {
       name: name, visible: true, opacity: 1, locked: false,
+      groupId: null, mask: null,
       canvas: cv, ctx: cv.getContext('2d', { willReadFrequently: true })
     };
+  }
+
+  /* ------------------------------------------------------------ groups/masks */
+
+  function groupById(id) {
+    for (var i = 0; i < S.groups.length; i++) if (S.groups[i].id === id) return S.groups[i];
+    return null;
+  }
+
+  function layerVisible(l) {
+    if (!l.visible) return false;
+    if (l.groupId) {
+      var g = groupById(l.groupId);
+      if (g && !g.visible) return false;
+    }
+    return true;
+  }
+
+  function addGroup() {
+    var g = { id: 'g' + (S.groupSeq++), name: 'Group ' + S.groups.length + 1, visible: true, collapsed: false };
+    S.groups.push(g);
+    var l = activeLayer();
+    if (l) l.groupId = g.id;
+    pushHistory(); renderLayers(); render();
+    toast('Group created — the active layer is inside it');
+  }
+
+  function ungroupActive() {
+    var l = activeLayer();
+    if (!l || !l.groupId) { toast('Active layer is not in a group'); return; }
+    var id = l.groupId;
+    S.layers.forEach(function (x) { if (x.groupId === id) x.groupId = null; });
+    S.groups = S.groups.filter(function (g) { return g.id !== id; });
+    pushHistory(); renderLayers(); render();
+  }
+
+  function toggleCollapseActive() {
+    var l = activeLayer();
+    if (!l || !l.groupId) { toast('Active layer is not in a group'); return; }
+    var g = groupById(l.groupId);
+    if (!g) return;
+    g.collapsed = !g.collapsed;
+    renderLayers();
+  }
+
+  function makeMaskFromSelection() {
+    var l = guardLayer();
+    if (!l) return;
+    var mask = document.createElement('canvas');
+    mask.width = S.w; mask.height = S.h;
+    var mc = mask.getContext('2d');
+    if (S.sel) {
+      mc.fillStyle = '#ffffff';
+      mc.fillRect(S.sel.x, S.sel.y, S.sel.w, S.sel.h);
+    } else {
+      mc.fillStyle = '#ffffff';
+      mc.fillRect(0, 0, S.w, S.h);
+      toast('No selection — the mask starts fully visible');
+    }
+    l.mask = { canvas: mask, enabled: true };
+    pushHistory(); render(); renderLayers();
+    toast('Mask created');
+  }
+
+  function toggleMask() {
+    var l = activeLayer();
+    if (!l || !l.mask) { toast('This layer has no mask'); return; }
+    l.mask.enabled = !l.mask.enabled;
+    pushHistory(); render(); renderLayers();
+    toast(l.mask.enabled ? 'Mask on' : 'Mask off');
+  }
+
+  function removeMask() {
+    var l = activeLayer();
+    if (!l || !l.mask) { toast('This layer has no mask'); return; }
+    l.mask = null;
+    pushHistory(); render(); renderLayers();
+    toast('Mask removed');
   }
 
   function activeLayer() { return S.layers[S.active]; }
@@ -174,6 +255,7 @@
         return c;
       }))),
       selectedObj: S.selectedObj,
+      groups: JSON.parse(JSON.stringify(S.groups)),
       layers: S.layers.map(function (l) {
         var data = l.ctx.getImageData(0, 0, S.w, S.h);
         var reuse = null;
@@ -183,6 +265,11 @@
         });
         return {
           name: l.name, visible: l.visible, opacity: l.opacity, locked: l.locked,
+          groupId: l.groupId,
+          mask: l.mask ? {
+            enabled: l.mask.enabled,
+            data: l.mask.canvas.getContext('2d').getImageData(0, 0, S.w, S.h)
+          } : null,
           data: reuse || data
         };
       })
@@ -199,6 +286,18 @@
       return l;
     });
     S.active = Math.min(snap.active, S.layers.length - 1);
+    S.groups = snap.groups ? JSON.parse(JSON.stringify(snap.groups)) : [];
+    (snap.layers || []).forEach(function (o, i) {
+      var l = S.layers[i];
+      if (!l) return;
+      l.groupId = o.groupId || null;
+      if (o.mask) {
+        var mc = document.createElement('canvas');
+        mc.width = S.w; mc.height = S.h;
+        mc.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(o.mask.data.data), S.w, S.h), 0, 0);
+        l.mask = { canvas: mc, enabled: o.mask.enabled };
+      }
+    });
     S.objects = (snap.objects || []).map(function (o) { return Object.assign({}, o); });
     S.selectedObj = snap.selectedObj || null;
     S.sel = null; S.floating = null; S.preview = null;
@@ -252,9 +351,21 @@
     compCtx.clearRect(0, 0, S.w, S.h);
     for (var i = 0; i < S.layers.length; i++) {
       var l = S.layers[i];
-      if (!l.visible || l.opacity <= 0) continue;
+      if (!layerVisible(l) || l.opacity <= 0) continue;
       compCtx.globalAlpha = l.opacity;
-      compCtx.drawImage(l.canvas, 0, 0);
+      if (l.mask && l.mask.enabled) {
+        if (maskTmp.width !== S.w || maskTmp.height !== S.h) { maskTmp.width = S.w; maskTmp.height = S.h; }
+        var mt = maskTmp.getContext('2d');
+        mt.clearRect(0, 0, S.w, S.h);
+        mt.globalCompositeOperation = 'source-over';
+        mt.drawImage(l.canvas, 0, 0);
+        mt.globalCompositeOperation = 'destination-in';
+        mt.drawImage(l.mask.canvas, 0, 0);
+        mt.globalCompositeOperation = 'source-over';
+        compCtx.drawImage(maskTmp, 0, 0);
+      } else {
+        compCtx.drawImage(l.canvas, 0, 0);
+      }
     }
     compCtx.globalAlpha = 1;
     for (var j = 0; j < S.objects.length; j++) {
@@ -513,8 +624,32 @@
     for (var i = S.layers.length - 1; i >= 0; i--) {
       (function (i) {
         var l = S.layers[i];
+        var grp = l.groupId ? groupById(l.groupId) : null;
+        if (grp) {
+          var isFirstOfGroup = true;
+          for (var k = i + 1; k < S.layers.length; k++) {
+            if (S.layers[k].groupId === grp.id) { isFirstOfGroup = false; break; }
+          }
+          if (isFirstOfGroup && !grp.collapsed) {
+            var head = document.createElement('div');
+            head.className = 'group-row';
+            var gEye = document.createElement('button');
+            gEye.className = 'eye' + (grp.visible ? ' on' : '');
+            gEye.textContent = grp.visible ? '●' : '○';
+            gEye.onclick = function (e) { e.stopPropagation(); grp.visible = !grp.visible; render(); renderLayers(); };
+            var gName = document.createElement('span');
+            gName.className = 'group-name';
+            gName.textContent = '▸ ' + grp.name;
+            gName.onclick = function (e) { e.stopPropagation(); grp.collapsed = true; renderLayers(); };
+            head.appendChild(gEye);
+            head.appendChild(gName);
+            box.appendChild(head);
+          }
+          if (grp.collapsed) return;
+        }
+
         var el = document.createElement('div');
-        el.className = 'layer' + (i === S.active ? ' active' : '');
+        el.className = 'layer' + (i === S.active ? ' active' : '') + (grp ? ' in-group' : '');
 
         var eye = document.createElement('button');
         eye.className = 'eye' + (l.visible ? ' on' : '');
@@ -532,7 +667,7 @@
 
         var name = document.createElement('div');
         name.className = 'name';
-        name.textContent = l.name;
+        name.textContent = l.name + (l.mask ? (l.mask.enabled ? ' ⬚' : ' ⬚̸') : '');
         name.title = 'Double-click to rename';
         name.ondblclick = function (e) {
           e.stopPropagation();
@@ -1771,6 +1906,7 @@
       app: 'pixelstudioedit', version: 4,
       w: S.w, h: S.h,
       palette: S.palette.slice(),
+      groups: JSON.parse(JSON.stringify(S.groups)),
       objects: S.objects.map(function (o) {
         var c = {}; Object.keys(o).forEach(function (k) { if (k.charAt(0) !== '_') c[k] = o[k]; });
         return c;
@@ -2012,15 +2148,21 @@
     });
     on('m-help', 'click', function () {
       byId('menu-pop').hidden = true;
-      modal('Keyboard shortcuts',
-        '<div class="hint" style="line-height:1.9;font-size:12px">' +
+      modal('Quick guide',
+        '<div class="guide">' +
+        '<h4>1 · Start</h4><p class="hint">Pick Create a design, Edit a photo or Make pixel art on the start screen. Templates give you a finished layout with editable text.</p>' +
+        '<h4>2 · Text</h4><p class="hint">Choose the Text tool (T), tap the canvas and a small box opens right there. Type, press Enter. Tap the text again with Select (M) to change its words, font or style.</p>' +
+        '<h4>3 · Objects</h4><p class="hint">Every text and shape stays editable. Select it to drag, resize with the corner handles, or rotate with the round handle. Flatten when you are done.</p>' +
+        '<h4>4 · Photo &amp; pixel art</h4><p class="hint">The Photo tab resizes, crops, removes backgrounds and turns a photo into pixel art with a palette and dithering.</p>' +
+        '<h4>5 · Export</h4><p class="hint">Export PNG (transparency), JPEG or WebP at 1×–20×. Projects save as JSON and reopen with layers and text intact.</p>' +
+        '<h4>Shortcuts</h4><div class="hint" style="line-height:1.9">' +
         '<b>B</b> pencil · <b>E</b> eraser · <b>G</b> fill · <b>I</b> eyedropper<br>' +
         '<b>L</b> line · <b>R</b> rectangle · <b>O</b> ellipse<br>' +
         '<b>M</b> select · <b>T</b> text · <b>H</b> pan · <b>X</b> swap colours<br>' +
         '<b>[</b> <b>]</b> brush size · <b>+</b> <b>−</b> zoom · <b>0</b> fit<br>' +
         '<b>Ctrl+Z</b> undo · <b>Ctrl+Shift+Z</b> redo · <b>Ctrl+A</b> select all<br>' +
         '<b>Delete</b> clear selection · <b>Esc</b> deselect<br><br>' +
-        'Right-click draws with the secondary colour.</div>', function () {}, 'Close');
+        'Right-click draws with the secondary colour.</div></div>', function () {}, 'Got it');
     });
 
     $$('#tabs .tab').forEach(function (b) { b.onclick = function () { toggleTab(b.dataset.tab); }; });
@@ -2058,6 +2200,14 @@
     on('reset-palette', 'click', function () { loadPalette(byId('palette-select').value); });
     on('bg-colour', 'click', function () { fillBackground('colour'); });
     on('bg-gradient', 'click', function () { fillBackground('gradient'); });
+
+    // groups and masks
+    on('group-add', 'click', addGroup);
+    on('group-toggle', 'click', toggleCollapseActive);
+    on('group-del', 'click', ungroupActive);
+    on('mask-from-selection', 'click', makeMaskFromSelection);
+    on('mask-toggle', 'click', toggleMask);
+    on('mask-remove', 'click', removeMask);
 
     // objects
     $$('[data-add-shape]').forEach(function (b) {
