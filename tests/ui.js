@@ -376,6 +376,18 @@ const check = (name, ok, detail) => {
   check('photo opens at its own size', photoState.w === 600 && photoState.h === 900, JSON.stringify([photoState.w, photoState.h]));
   check('photo import is not blocky', photoState.uniqueColours > 40, photoState.uniqueColours);
 
+  // the *displayed* artboard must be smooth too — this is what the user actually sees
+  const displayState = await page.evaluate(() => {
+    const c = document.querySelector('#screen');
+    const ctx = c.getContext('2d');
+    const col = ctx.getImageData(Math.floor(c.width / 2), 0, 1, c.height).data;
+    const set = new Set();
+    for (let i = 0; i < col.length; i += 4) set.add(col[i] + ',' + col[i + 1] + ',' + col[i + 2]);
+    return { colours: set.size, zoom: +window.PS.state.zoom.toFixed(2), smoothing: ctx.imageSmoothingEnabled };
+  });
+  check('displayed canvas is smooth when zoomed out', displayState.colours > 40 && displayState.smoothing,
+    JSON.stringify(displayState));
+
   // back to a clean small document for the remaining checks
   await page.evaluate(() => document.querySelector('#btn-menu').click());
   await new Promise(r => setTimeout(r, 150));
