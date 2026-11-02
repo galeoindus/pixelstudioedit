@@ -254,7 +254,9 @@ h4:first-child { margin-top: 0; }
   box-shadow: 0 20px 55px rgba(0, 0, 0, 0.65), 0 0 0 1px #39415280;
 }
 .stage.panning { cursor: grabbing; }
-#screen { display: block; image-rendering: pixelated; image-rendering: crisp-edges; touch-action: none; }
+#screen { display: block; touch-action: none; }
+/* Nearest-neighbour scaling only in pixel-art mode; design work stays smooth. */
+.stage.crisp > canvas { image-rendering: pixelated; image-rendering: crisp-edges; }
 
 .statusbar {
   display: flex; gap: 16px;
@@ -801,8 +803,6 @@ input[type="color"] {
   position: absolute;
   inset: 0;
   display: block;
-  image-rendering: pixelated;
-  image-rendering: crisp-edges;
 }
 #bg-layer { position: relative; }
 #screen, #overlay { position: absolute; }
