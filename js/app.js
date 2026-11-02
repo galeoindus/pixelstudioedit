@@ -47,6 +47,7 @@
     symX: false, symY: false, showGrid: true, fillShapes: false,
     sel: null, floating: null, preview: null, drag: null, panning: null,
     history: [], hpos: -1,
+    objects: [], selectedObj: null, objSeq: 1,
     fxBase: null, textAnchor: null,
     palette: [], ready: false, spaceDown: false,
     text: {
@@ -151,6 +152,11 @@
   function snapshot() {
     return {
       w: S.w, h: S.h, active: S.active,
+      objects: JSON.parse(JSON.stringify(S.objects.map(function (o) {
+        var c = {}; Object.keys(o).forEach(function (k) { if (k.charAt(0) !== '_') c[k] = o[k]; });
+        return c;
+      }))),
+      selectedObj: S.selectedObj,
       layers: S.layers.map(function (l) {
         return {
           name: l.name, visible: l.visible, opacity: l.opacity, locked: l.locked,
@@ -169,8 +175,10 @@
       return l;
     });
     S.active = Math.min(snap.active, S.layers.length - 1);
+    S.objects = (snap.objects || []).map(function (o) { return Object.assign({}, o); });
+    S.selectedObj = snap.selectedObj || null;
     S.sel = null; S.floating = null; S.preview = null;
-    render(); renderLayers(); updateStatus();
+    render(); renderObjects(); renderLayers(); updateStatus();
   }
 
   function setSaveStatus(text) {
@@ -224,6 +232,12 @@
       compCtx.drawImage(l.canvas, 0, 0);
     }
     compCtx.globalAlpha = 1;
+    for (var j = 0; j < S.objects.length; j++) {
+      var o = S.objects[j];
+      if (!o.visible) continue;
+      var cv = objectCanvas(o);
+      if (cv) compCtx.drawImage(cv, 0, 0);
+    }
     return compCv;
   }
 
@@ -307,6 +321,17 @@
       screenCtx.restore();
     }
 
+    var selObj = selectedObject();
+    if (selObj && selObj.visible) {
+      var b = objectBounds(selObj);
+      screenCtx.save();
+      screenCtx.strokeStyle = '#60a5fa';
+      screenCtx.lineWidth = 1.5;
+      screenCtx.setLineDash([5, 3]);
+      screenCtx.strokeRect(b.x * z - 1, b.y * z - 1, b.w * z + 2, b.h * z + 2);
+      screenCtx.restore();
+    }
+
     var selRect = S.sel;
     if (S.drag && (S.drag.type === 'sel' || S.drag.type === 'crop') && S.drag.cur) {
       selRect = normalizeRect(S.drag.start, S.drag.cur);
@@ -348,6 +373,77 @@
   function setZoom(z) {
     S.zoom = Math.max(1, Math.min(64, Math.round(z)));
     render();
+  }
+
+  /* -------------------------------------------------------------- objects UI */
+
+  function renderObjects() {
+    var box = byId('objects');
+    if (!box) return;
+    box.innerHTML = '';
+    if (!S.objects.length) {
+      var empty = document.createElement('div');
+      empty.className = 'obj-empty';
+      empty.textContent = 'No objects yet — add text or a shape.';
+      box.appendChild(empty);
+      return;
+    }
+    S.objects.slice().reverse().forEach(function (o) {
+      var row = document.createElement('div');
+      row.className = 'object-row' + (o.id === S.selectedObj ? ' active' : '');
+      var label = o.type === 'text'
+        ? (o.text || '').split('\n')[0].slice(0, 18) || 'Text'
+        : (o.shape || 'shape');
+      var name = document.createElement('span');
+      name.className = 'obj-name';
+      name.textContent = (o.type === 'text' ? 'T · ' : '▢ · ') + label;
+
+      var eye = document.createElement('button');
+      eye.className = 'eye' + (o.visible ? ' on' : '');
+      eye.textContent = o.visible ? '●' : '○';
+      eye.onclick = function (e) { e.stopPropagation(); o.visible = !o.visible; render(); renderObjects(); };
+
+      var flat = document.createElement('button');
+      flat.className = 'obj-btn';
+      flat.textContent = '⤓';
+      flat.title = 'Flatten into layer';
+      flat.onclick = function (e) { e.stopPropagation(); flattenObject(o.id); };
+
+      row.appendChild(eye);
+      row.appendChild(name);
+      row.appendChild(flat);
+      row.onclick = function () {
+        S.selectedObj = o.id;
+        if (o.type === 'text') loadTextObjectIntoPanel(o);
+        render(); renderObjects();
+      };
+      box.appendChild(row);
+    });
+  }
+
+  /* Loads a text object's properties into the Text tab so it can be edited. */
+  function loadTextObjectIntoPanel(o) {
+    byId('text-content').value = o.text || '';
+    byId('text-size').value = o.size || 12;
+    byId('text-size-val').textContent = o.size || 12;
+    byId('text-grad2').value = o.grad2 || '#38bdf8';
+    S.text.font = o.font || S.text.font;
+    S.text.bold = !!o.bold;
+    S.text.italic = !!o.italic;
+    S.text.gradient = !!o.gradient;
+    S.text.stroke = o.stroke || 0;
+    S.text.strokeColor = o.strokeColor || '#000000';
+    S.text.shadow = o.shadow || 0;
+    S.text.shadowColor = o.shadowColor || '#000000';
+    S.text.curve = o.curve || 0;
+    S.text.depth = o.depth || 0;
+    S.text.depthColor = o.depthColor || '#2b2b3a';
+    S.text.reflection = !!o.reflection;
+    S.text.emboss = !!o.emboss;
+    setColor(o.color || S.color);
+    syncTextControls();
+    renderFontList();
+    openTab('text');
   }
 
   /* --------------------------------------------------------------- layers UI */
@@ -567,6 +663,16 @@
       S.preview = { tool: S.tool, x0: p.x, y0: p.y, x1: p.x, y1: p.y, color: color };
       render();
     } else if (S.tool === 'select') {
+      var hit = objectAt(p);
+      if (hit) {
+        S.selectedObj = hit.id;
+        S.drag = { type: 'objmove', obj: hit, start: p, ox: hit.x || 0, oy: hit.y || 0, moved: false };
+        renderObjects();
+        render();
+        return;
+      }
+      S.selectedObj = null;
+      renderObjects();
       if (S.sel && p.x >= S.sel.x && p.x < S.sel.x + S.sel.w && p.y >= S.sel.y && p.y < S.sel.y + S.sel.h && l) {
         beginMove(p);
       } else {
@@ -581,6 +687,17 @@
     } else if (S.tool === 'text') {
       openTextOverlay(p);
     }
+  }
+
+  /* Topmost object whose bounds contain the point. */
+  function objectAt(p) {
+    for (var i = S.objects.length - 1; i >= 0; i--) {
+      var o = S.objects[i];
+      if (!o.visible) continue;
+      var b = objectBounds(o);
+      if (p.x >= b.x - 2 && p.x <= b.x + b.w + 2 && p.y >= b.y - 2 && p.y <= b.y + b.h + 2) return o;
+    }
+    return null;
   }
 
   function beginMove(p) {
@@ -617,6 +734,13 @@
     } else if (S.drag.type === 'shape') {
       S.preview.x1 = p.x; S.preview.y1 = p.y;
       render();
+    } else if (S.drag.type === 'objmove') {
+      var o = S.drag.obj;
+      o.x = S.drag.ox + (p.x - S.drag.start.x);
+      o.y = S.drag.oy + (p.y - S.drag.start.y);
+      o._cache = null;
+      S.drag.moved = true;
+      render();
     } else if (S.drag.type === 'sel' || S.drag.type === 'crop') {
       S.drag.cur = p;
       render();
@@ -640,6 +764,8 @@
       if (l && S.preview) { drawShape(l.ctx, S.preview); pushHistory(); }
       S.preview = null;
       render(); renderLayers();
+    } else if (d.type === 'objmove') {
+      if (d.moved) { pushHistory(); renderObjects(); }
     } else if (d.type === 'crop') {
       if (d.cur) {
         var cr = normalizeRect(d.start, d.cur);
@@ -879,6 +1005,7 @@
       b.onclick = function () {
         S.text.font = f.css;
         $$('#font-list .font-item').forEach(function (x) { x.classList.toggle('sel', x === b); });
+        if (updateSelectedText()) pushHistory();
         toast('Font: ' + f.name);
       };
       box.appendChild(b);
@@ -903,10 +1030,10 @@
   }
 
   /* Draws one line, optionally curved, into ctx. */
-  function drawLine(ctx, line, x, y, size, curve) {
+  function drawTextLine(ctx, line, x, y, size, curve, strokeWidth) {
     if (!curve) {
       ctx.fillText(line, x, y);
-      if (S.text.stroke > 0) ctx.strokeText(line, x, y);
+      if (strokeWidth > 0) ctx.strokeText(line, x, y);
       return;
     }
     var chars = Array.from(line);
@@ -917,28 +1044,64 @@
       var t = chars.length === 1 ? 0 : (acc / Math.max(1, total)) * 2 - 1;
       var dy = (curve / 100) * size * 1.4 * (t * t - 1);
       ctx.fillText(chars[i], x + acc, y + dy);
-      if (S.text.stroke > 0) ctx.strokeText(chars[i], x + acc, y + dy);
+      if (strokeWidth > 0) ctx.strokeText(chars[i], x + acc, y + dy);
       acc += widths[i];
     }
   }
 
-  /* Builds the finished text as a canvas the size of the document. */
-  function buildTextCanvas() {
-    var txt = byId('text-content').value;
-    if (!txt || !txt.trim()) return null;
-    var size = +byId('text-size').value || 12;
-    var anchor = S.textAnchor || { x: 2, y: 2 };
+  /* ------------------------------------------------------- editable objects */
 
-    // 1. mask (white text) — used for depth, shadow, reflection, emboss
+  function newObjectId() { return 'o' + (S.objSeq++); }
+
+  function currentTextProps() {
+    return {
+      text: byId('text-content').value,
+      font: S.text.font,
+      size: +byId('text-size').value || 12,
+      bold: S.text.bold,
+      italic: S.text.italic,
+      gradient: S.text.gradient,
+      grad2: byId('text-grad2').value,
+      stroke: S.text.stroke,
+      strokeColor: S.text.strokeColor,
+      shadow: S.text.shadow,
+      shadowColor: S.text.shadowColor,
+      curve: S.text.curve,
+      depth: S.text.depth,
+      depthColor: S.text.depthColor,
+      angle: +byId('td-angle').value,
+      reflection: S.text.reflection,
+      emboss: S.text.emboss,
+      color: S.color
+    };
+  }
+
+  /* Renders a text object onto a document-sized canvas (cached by props). */
+  function textObjectCanvas(o) {
+    if (!o || !o.text || !o.text.trim()) return null;
+    var key = JSON.stringify([o.text, o.font, o.size, o.bold, o.italic, o.gradient, o.grad2,
+      o.stroke, o.strokeColor, o.shadow, o.shadowColor, o.curve, o.depth, o.depthColor,
+      o.angle, o.reflection, o.emboss, o.color, o.x, o.y, S.w, S.h]);
+    if (o._cache && o._cache.key === key) return o._cache.canvas;
+
+    var size = Math.max(4, o.size);
+    var fontStr = (o.bold ? 'bold ' : '') + (o.italic ? 'italic ' : '') + size + 'px ' + o.font;
+    var lines = o.text.split('\n');
+    var lineH = Math.round(size * 1.25);
+
     var mask = offscreen(S.w, S.h);
     var mc = mask.getContext('2d');
-    mc.font = textFont(size);
+    mc.font = fontStr;
     mc.textBaseline = 'top';
     mc.fillStyle = '#ffffff';
-    var lines = txt.split('\n');
+    if (o.stroke > 0) { mc.strokeStyle = '#ffffff'; mc.lineWidth = o.stroke; mc.lineJoin = 'round'; }
+
+    var maxW = 0;
     for (var i = 0; i < lines.length; i++) {
-      drawLine(mc, lines[i], anchor.x, anchor.y + i * Math.round(size * 1.25), size, S.text.curve);
+      maxW = Math.max(maxW, mc.measureText(lines[i]).width);
+      drawTextLine(mc, lines[i], o.x, o.y + i * lineH, size, o.curve, o.stroke);
     }
+    o._bounds = { x: o.x, y: o.y, w: Math.max(6, maxW + o.stroke * 2), h: Math.max(6, lines.length * lineH + o.stroke * 2) };
 
     var out = offscreen(S.w, S.h);
     var c = out.getContext('2d');
@@ -953,39 +1116,29 @@
       return cv;
     }
 
-    // 2. drop shadow
-    if (S.text.shadow > 0) {
-      var sh = tinted(S.text.shadowColor);
+    if (o.shadow > 0) {
       c.save();
       c.globalAlpha = 0.75;
-      c.drawImage(sh, S.text.shadow, S.text.shadow);
+      c.drawImage(tinted(o.shadowColor), o.shadow, o.shadow);
       c.restore();
     }
-
-    // 3. reflection
-    if (S.text.reflection) {
-      var refl = tinted(S.color);
+    if (o.reflection) {
       c.save();
       c.globalAlpha = 0.32;
       c.translate(0, S.h);
       c.scale(1, -1);
-      c.drawImage(refl, 0, -(S.h - Math.round(size * 1.1)));
+      c.drawImage(tinted(o.color), 0, -(S.h - Math.round(size * 1.1)));
       c.restore();
     }
-
-    // 4. extrusion (3D depth)
-    if (S.text.depth > 0) {
-      var ang = (+byId('td-angle').value) * Math.PI / 180;
+    if (o.depth > 0) {
+      var ang = (o.angle || 225) * Math.PI / 180;
       var img = mask.getContext('2d').getImageData(0, 0, S.w, S.h);
-      var sideRgb = C.parseColor(S.text.depthColor);
-      C.extrude(img, Math.cos(ang), Math.sin(ang), S.text.depth, sideRgb, null);
+      C.extrude(img, Math.cos(ang), Math.sin(ang), o.depth, C.parseColor(o.depthColor), null);
       var dep = offscreen(S.w, S.h);
       dep.getContext('2d').putImageData(new ImageData(new Uint8ClampedArray(img.data), S.w, S.h), 0, 0);
       c.drawImage(dep, 0, 0);
     }
-
-    // 5. emboss
-    if (S.text.emboss) {
+    if (o.emboss) {
       c.save();
       c.globalAlpha = 0.85;
       c.drawImage(tinted('#ffffff'), -1, -1);
@@ -993,47 +1146,138 @@
       c.restore();
     }
 
-    // 6. face
     c.save();
-    c.font = textFont(size);
+    c.font = fontStr;
     c.textBaseline = 'top';
     c.lineJoin = 'round';
-    var fill = S.color;
-    if (S.text.gradient) {
-      var mctx = offscreen(S.w, S.h).getContext('2d');
-      mctx.font = textFont(size);
-      var wMax = 0;
-      lines.forEach(function (ln) { wMax = Math.max(wMax, mctx.measureText(ln).width); });
-      var g = c.createLinearGradient(anchor.x, anchor.y, anchor.x + Math.max(2, wMax), anchor.y + Math.max(2, lines.length * size * 1.25));
-      g.addColorStop(0, S.color);
-      g.addColorStop(1, byId('text-grad2').value);
+    var fill = o.color;
+    if (o.gradient) {
+      var g = c.createLinearGradient(o.x, o.y, o.x + Math.max(2, maxW), o.y + Math.max(2, lines.length * lineH));
+      g.addColorStop(0, o.color);
+      g.addColorStop(1, o.grad2);
       fill = g;
     }
     c.fillStyle = fill;
-    if (S.text.stroke > 0) {
-      c.strokeStyle = S.text.strokeColor;
-      c.lineWidth = S.text.stroke;
-    }
+    if (o.stroke > 0) { c.strokeStyle = o.strokeColor; c.lineWidth = o.stroke; }
     for (var j = 0; j < lines.length; j++) {
-      drawLine(c, lines[j], anchor.x, anchor.y + j * Math.round(size * 1.25), size, S.text.curve);
+      drawTextLine(c, lines[j], o.x, o.y + j * lineH, size, o.curve, o.stroke);
     }
     c.restore();
 
+    o._cache = { key: key, canvas: out };
     return out;
   }
 
-  function addText() {
+  function shapeObjectCanvas(o) {
+    var cv = offscreen(S.w, S.h);
+    var c = cv.getContext('2d');
+    c.save();
+    c.strokeStyle = o.strokeColor;
+    c.fillStyle = o.color;
+    c.lineWidth = Math.max(1, o.strokeWidth || 1);
+    var x = o.x, y = o.y, w = o.w, h = o.h;
+    if (o.shape === 'rect') {
+      if (o.filled) c.fillRect(x, y, w, h); else c.strokeRect(x + 0.5, y + 0.5, w - 1, h - 1);
+    } else if (o.shape === 'ellipse') {
+      c.beginPath();
+      c.ellipse(x + w / 2, y + h / 2, Math.max(1, w / 2), Math.max(1, h / 2), 0, 0, Math.PI * 2);
+      if (o.filled) c.fill(); else c.stroke();
+    } else if (o.shape === 'line') {
+      c.beginPath();
+      c.moveTo(x, y);
+      c.lineTo(x + w, y + h);
+      c.stroke();
+    }
+    c.restore();
+    o._bounds = { x: x, y: y, w: Math.abs(w) || 1, h: Math.abs(h) || 1 };
+    return cv;
+  }
+
+  function objectCanvas(o) {
+    return o.type === 'text' ? textObjectCanvas(o) : shapeObjectCanvas(o);
+  }
+
+  function objectBounds(o) {
+    if (!o._bounds) objectCanvas(o);
+    return o._bounds || { x: o.x || 0, y: o.y || 0, w: 1, h: 1 };
+  }
+
+  function selectedObject() {
+    for (var i = 0; i < S.objects.length; i++) if (S.objects[i].id === S.selectedObj) return S.objects[i];
+    return null;
+  }
+
+  function addTextObject(props, anchor) {
+    var o = Object.assign({ id: newObjectId(), type: 'text', visible: true }, props);
+    o.x = anchor ? anchor.x : (S.textAnchor ? S.textAnchor.x : 2);
+    o.y = anchor ? anchor.y : (S.textAnchor ? S.textAnchor.y : 2);
+    S.objects.push(o);
+    S.selectedObj = o.id;
+    pushHistory(); render(); renderObjects(); renderLayers();
+    toast('Text object added — edit it any time');
+    return o;
+  }
+
+  function addShapeObject(shape) {
+    var w = Math.round(S.w * 0.4), h = Math.round(S.h * 0.4);
+    var o = {
+      id: newObjectId(), type: 'shape', shape: shape, visible: true,
+      x: Math.round((S.w - w) / 2), y: Math.round((S.h - h) / 2),
+      w: w, h: h, filled: S.fillShapes, color: S.color,
+      strokeColor: S.color2, strokeWidth: Math.max(1, S.brush)
+    };
+    S.objects.push(o);
+    S.selectedObj = o.id;
+    pushHistory(); render(); renderObjects();
+    toast(shape + ' added');
+  }
+
+  function deleteObject(id) {
+    S.objects = S.objects.filter(function (o) { return o.id !== id; });
+    if (S.selectedObj === id) S.selectedObj = null;
+    pushHistory(); render(); renderObjects(); renderLayers();
+  }
+
+  /* Bakes the selected object into the active layer. */
+  function flattenObject(id) {
+    var o = null;
+    S.objects.forEach(function (x) { if (x.id === id) o = x; });
     var l = guardLayer();
-    if (!l) return;
+    if (!o || !l) return;
+    var cv = objectCanvas(o);
+    if (cv) l.ctx.drawImage(cv, 0, 0);
+    S.objects = S.objects.filter(function (x) { return x.id !== id; });
+    if (S.selectedObj === id) S.selectedObj = null;
+    pushHistory(); render(); renderObjects(); renderLayers();
+    toast('Flattened into ' + l.name);
+  }
+
+  function updateSelectedText() {
+    var o = selectedObject();
+    if (!o || o.type !== 'text') return false;
+    Object.assign(o, currentTextProps());
+    o._cache = null;
+    render();
+    return true;
+  }
+
+  /* Renders the current Text-tab settings at the tap anchor, without creating an object. */
+  function buildTextCanvas() {
+    var props = currentTextProps();
+    var tmp = Object.assign({ id: 'preview', type: 'text', visible: true }, props);
+    tmp.x = S.textAnchor ? S.textAnchor.x : 2;
+    tmp.y = S.textAnchor ? S.textAnchor.y : 2;
+    return textObjectCanvas(tmp);
+  }
+
+  function addText() {
     if (!byId('text-content').value.trim()) { toast('Type some text first'); return; }
-    var cv = buildTextCanvas();
-    if (!cv) return;
-    l.ctx.save();
-    l.ctx.globalAlpha = S.opacity;
-    l.ctx.drawImage(cv, 0, 0);
-    l.ctx.restore();
-    pushHistory(); render(); renderLayers();
-    toast('Text added');
+    if (updateSelectedText()) {
+      pushHistory(); renderObjects();
+      toast('Text updated');
+      return;
+    }
+    addTextObject(currentTextProps());
   }
 
   function applyStylePreset(name) {
@@ -1253,6 +1497,7 @@
     S.w = w; S.h = h;
     S.layers = [mkLayer('Layer 1')];
     S.active = 0;
+    S.objects = []; S.selectedObj = null;
     S.sel = null; S.floating = null; S.preview = null; S.fxBase = null;
     S.history = []; S.hpos = -1;
     fitZoom(); render(); renderLayers(); updateStatus();
@@ -1261,9 +1506,13 @@
 
   function projectObject() {
     return {
-      app: 'pixelstudioedit', version: 3,
+      app: 'pixelstudioedit', version: 4,
       w: S.w, h: S.h,
       palette: S.palette.slice(),
+      objects: S.objects.map(function (o) {
+        var c = {}; Object.keys(o).forEach(function (k) { if (k.charAt(0) !== '_') c[k] = o[k]; });
+        return c;
+      }),
       layers: S.layers.map(function (l) {
         return {
           name: l.name, visible: l.visible, opacity: l.opacity, locked: l.locked,
@@ -1284,7 +1533,10 @@
       return l;
     });
     S.active = 0;
+    S.objects = (obj.objects || []).map(function (o) { return Object.assign({}, o); });
+    S.selectedObj = null;
     if (Array.isArray(obj.palette) && obj.palette.length) { S.palette = obj.palette.slice(); renderPalette(); }
+    renderObjects();
     var pending = S.layers.length;
     S.layers.forEach(function (l, i) {
       var im = new Image();
@@ -1539,6 +1791,19 @@
     on('bg-colour', 'click', function () { fillBackground('colour'); });
     on('bg-gradient', 'click', function () { fillBackground('gradient'); });
 
+    // objects
+    $$('[data-add-shape]').forEach(function (b) {
+      b.onclick = function () { addShapeObject(b.dataset.addShape); };
+    });
+    on('obj-flatten', 'click', function () {
+      if (!S.selectedObj) { toast('Select an object first'); return; }
+      flattenObject(S.selectedObj);
+    });
+    on('obj-delete', 'click', function () {
+      if (!S.selectedObj) { toast('Select an object first'); return; }
+      deleteObject(S.selectedObj);
+    });
+
     // layers
     on('layer-add', 'click', addLayer);
     on('layer-dup', 'click', duplicateLayer);
@@ -1567,6 +1832,12 @@
     on('text-reflection', 'click', function () { S.text.reflection = !S.text.reflection; this.classList.toggle('on', S.text.reflection); });
     on('text-emboss', 'click', function () { S.text.emboss = !S.text.emboss; this.classList.toggle('on', S.text.emboss); });
     on('text-add', 'click', addText);
+    ['text-size', 'text-stroke', 'text-shadow', 'text-curve', 'text-depth', 'text-stroke-color',
+     'text-shadow-color', 'text-depth-color', 'text-grad2'].forEach(function (id) {
+      var el = byId(id);
+      if (!el) return;
+      el.addEventListener('change', function () { if (updateSelectedText()) pushHistory(); });
+    });
     $$('[data-style]').forEach(function (b) { b.onclick = function () { applyStylePreset(b.dataset.style); }; });
 
     [['text-size', 'text-size-val'], ['text-stroke', 'text-stroke-val'], ['text-shadow', 'text-shadow-val'],
@@ -1863,6 +2134,7 @@
     setColor('#ffffff', true);
     set3DMode('text');
     renderStickerGrid();
+    renderObjects();
     renderFontList();
     syncTextControls();
     if (document.fonts && document.fonts.ready) {
