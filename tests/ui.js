@@ -436,6 +436,70 @@ const check = (name, ok, detail) => {
   const s3 = await docSize();
   check('canvas dialog resizes', s3.w === 48 && s3.h === 48, JSON.stringify(s3));
 
+  // 13f object handles: resize and rotate
+  await page.evaluate(() => { const b = document.querySelector('#btn-menu'); if (b) b.click(); });
+  await new Promise(r => setTimeout(r, 120));
+  await page.evaluate(() => document.querySelector('#m-new').click());
+  await new Promise(r => setTimeout(r, 200));
+  await page.evaluate(() => {
+    document.querySelector('#dlg-w').value = 64;
+    document.querySelector('#dlg-h').value = 64;
+    document.querySelector('.overlay [data-ok]').click();
+  });
+  await new Promise(r => setTimeout(r, 250));
+  await tab('layers');
+  await page.evaluate(() => document.querySelector('[data-add-shape="rect"]').click());
+  await new Promise(r => setTimeout(r, 250));
+  await tool('select');
+  const beforeResize = await page.evaluate(() => {
+    const o = window.PS.state.objects[0];
+    return { x: o.x, y: o.y, w: o.w, h: o.h };
+  });
+  const sePoint = await page.evaluate(() => {
+    const o = window.PS.state.objects[0];
+    return { x: o.x + o.w, y: o.y + o.h };
+  });
+  const fromSE = await at(sePoint.x, sePoint.y);
+  const toSE = await at(sePoint.x + 10, sePoint.y + 10);
+  await page.mouse.move(fromSE.x, fromSE.y);
+  await page.mouse.down();
+  await page.mouse.move(toSE.x, toSE.y, { steps: 8 });
+  await page.mouse.up();
+  await new Promise(r => setTimeout(r, 250));
+  const afterResize = await page.evaluate(() => {
+    const o = window.PS.state.objects[0];
+    return { x: o.x, y: o.y, w: o.w, h: o.h };
+  });
+  check('corner handle resizes the shape', afterResize.w > beforeResize.w && afterResize.h > beforeResize.h,
+    JSON.stringify([beforeResize, afterResize]));
+
+  const rotPoint = await page.evaluate(() => {
+    const o = window.PS.state.objects[0];
+    return { x: o.x + o.w / 2, y: o.y - 10 / Math.max(0.2, window.PS.state.zoom) * 1.6 };
+  });
+  const fromRot = await at(rotPoint.x, rotPoint.y);
+  const toRot = await at(rotPoint.x + 14, rotPoint.y + 14);
+  await page.mouse.move(fromRot.x, fromRot.y);
+  await page.mouse.down();
+  await page.mouse.move(toRot.x, toRot.y, { steps: 8 });
+  await page.mouse.up();
+  await new Promise(r => setTimeout(r, 250));
+  const rotation = await page.evaluate(() => window.PS.state.objects[0].rotation || 0);
+  check('rotate handle turns the object', rotation !== 0, rotation);
+
+  // 13g PWA assets and style thumbnails
+  // over file:// fetch() is blocked, so check the markup plus the files on disk
+  const fs = require('fs');
+  const pathMod = require('path');
+  const root = pathMod.resolve(__dirname, '..');
+  const pwa = await page.evaluate(() => ({
+    link: !!document.querySelector('link[rel="manifest"]'),
+    thumbs: document.querySelectorAll('.style-thumb canvas').length
+  }));
+  const filesOnDisk = fs.existsSync(pathMod.join(root, 'manifest.json')) && fs.existsSync(pathMod.join(root, 'sw.js'));
+  check('manifest link and PWA files present', pwa.link && filesOnDisk, JSON.stringify({ pwa, filesOnDisk }));
+  check('text style thumbnails render', pwa.thumbs >= 3, pwa.thumbs);
+
   // 14 zoom
   const z0 = await page.evaluate(() => document.querySelector('#zoom-label').textContent);
   await click('#zoom-in');
