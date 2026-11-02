@@ -26,6 +26,13 @@ Everything is organised around one canvas:
 
 ## Features
 
+**Editable objects** (text and shapes stay live, not baked pixels)
+- Text is created as an **object**: tap it in the Layers panel to select, change the words, font, size, gradient, stroke, shadow, curve or 3D depth at any time — the object updates in place
+- Drag a selected object anywhere on the canvas with the Select tool
+- Add **shape objects** (rectangle, ellipse, line) with your current colours; they stay editable too
+- **Flatten** any object into the active layer when you are finished with it, or hide/delete it
+- Objects are saved in the project file, so a reopened project keeps its text editable
+
 **Text**
 - **Tap the canvas with the Text tool and a floating text box opens right there** — type, press Enter, done
 - **Use your own font**: drop in any `.ttf`, `.otf`, `.woff` or `.woff2` file and it appears in the font list
