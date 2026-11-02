@@ -356,6 +356,38 @@ const check = (name, ok, detail) => {
   const resetSize = await docSize();
   check('new document resets to 64', resetSize.w === 64 && resetSize.h === 64, JSON.stringify(resetSize));
 
+  // 13a4 photo import must stay sharp (no blocky upscale)
+  await page.evaluate(() => { const st = document.querySelector('#start'); if (st) st.hidden = false; });
+  const [chooser] = await Promise.all([
+    page.waitForFileChooser({ timeout: 5000 }),
+    page.evaluate(() => document.querySelector('#start-photo').click())
+  ]);
+  await chooser.accept(['/scratch/work/test-photo.png']);
+  await new Promise(r => setTimeout(r, 1200));
+  const photoState = await page.evaluate(() => {
+    const st = window.PS.state;
+    const c = window.PS.composite();
+    const ctx = c.getContext('2d');
+    const col = ctx.getImageData(Math.floor(c.width / 2), 0, 1, c.height).data;
+    const colours = new Set();
+    for (let i = 0; i < col.length; i += 4) colours.add(col[i] + ',' + col[i + 1] + ',' + col[i + 2]);
+    return { w: st.w, h: st.h, uniqueColours: colours.size };
+  });
+  check('photo opens at its own size', photoState.w === 600 && photoState.h === 900, JSON.stringify([photoState.w, photoState.h]));
+  check('photo import is not blocky', photoState.uniqueColours > 40, photoState.uniqueColours);
+
+  // back to a clean small document for the remaining checks
+  await page.evaluate(() => document.querySelector('#btn-menu').click());
+  await new Promise(r => setTimeout(r, 150));
+  await page.evaluate(() => document.querySelector('#m-new').click());
+  await new Promise(r => setTimeout(r, 250));
+  await page.evaluate(() => {
+    document.querySelector('#dlg-w').value = 64;
+    document.querySelector('#dlg-h').value = 64;
+    document.querySelector('.overlay [data-ok]').click();
+  });
+  await new Promise(r => setTimeout(r, 300));
+
   // 13b stickers
   await tab('stickers');
   const stickers = await page.evaluate(() => document.querySelectorAll('#sticker-grid .sticker').length);
