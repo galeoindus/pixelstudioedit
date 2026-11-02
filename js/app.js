@@ -1735,6 +1735,7 @@
     });
     on('m-import', 'click', function () { byId('menu-pop').hidden = true; byId('file-import').click(); });
     on('m-export', 'click', function () { byId('menu-pop').hidden = true; exportDialog(); });
+    on('m-templates', 'click', function () { byId('menu-pop').hidden = true; templatesDialog(); });
     on('m-canvas', 'click', function () { byId('menu-pop').hidden = true; canvasDialog(); });
     on('m-restore', 'click', function () {
       byId('menu-pop').hidden = true;
@@ -1998,6 +1999,165 @@
     setColor(S.color2, true);
   }
 
+
+  /* ------------------------------------------------------ designed templates */
+
+  var TEMPLATE_LAYOUTS = [
+    {
+      id: 'poster', name: 'Poster', w: 1080, h: 1350, bg: '#0f172a', bg2: '#1e3a5f',
+      texts: [
+        { text: 'YOUR TITLE', size: 0.085, y: 0.36, color: '#ffffff', bold: true, depth: 8 },
+        { text: 'A short subtitle that explains the idea', size: 0.032, y: 0.48, color: '#9fb3c8', bold: false }
+      ]
+    },
+    {
+      id: 'quote', name: 'Quote card', w: 1080, h: 1080, bg: '#111827', bg2: '#1f2937',
+      texts: [
+        { text: '“Make something small today.”', size: 0.05, y: 0.36, color: '#f8fafc', bold: true, curve: 0 },
+        { text: '— your name', size: 0.028, y: 0.62, color: '#94a3b8', bold: false }
+      ]
+    },
+    {
+      id: 'meme', name: 'Meme', w: 800, h: 600, bg: '#ffffff',
+      texts: [
+        { text: 'TOP TEXT', size: 0.1, y: 0.03, color: '#000000', bold: true, stroke: 2, strokeColor: '#ffffff' },
+        { text: 'BOTTOM TEXT', size: 0.1, y: 0.8, color: '#000000', bold: true, stroke: 2, strokeColor: '#ffffff' }
+      ]
+    },
+    {
+      id: 'sale', name: 'Sale banner', w: 1500, h: 500, bg: '#7c2d12', bg2: '#f97316',
+      texts: [
+        { text: 'BIG SALE', size: 0.3, y: 0.2, color: '#ffffff', bold: true, depth: 10 },
+        { text: '50% OFF THIS WEEK', size: 0.09, y: 0.62, color: '#fff7ed', bold: false }
+      ]
+    },
+    {
+      id: 'thumb', name: 'YouTube thumbnail', w: 1280, h: 720, bg: '#0b1220', bg2: '#1e293b',
+      texts: [
+        { text: 'TITLE HERE', size: 0.15, y: 0.3, color: '#facc15', bold: true, stroke: 3, strokeColor: '#000000' },
+        { text: 'episode 01', size: 0.055, y: 0.62, color: '#e2e8f0', bold: false }
+      ]
+    },
+    {
+      id: 'story', name: 'Story', w: 1080, h: 1920, bg: '#1e1b4b', bg2: '#4c1d95',
+      texts: [
+        { text: 'NEW DROP', size: 0.075, y: 0.34, color: '#ffffff', bold: true, depth: 12 },
+        { text: 'swipe up', size: 0.032, y: 0.82, color: '#c4b5fd', bold: false }
+      ]
+    }
+  ];
+
+  /* Shrinks a text object until it fits the given width — templates must never overflow. */
+  function fitTextObject(o, maxW) {
+    for (var i = 0; i < 14; i++) {
+      o._cache = null;
+      textObjectCanvas(o);
+      var b = o._bounds || { w: 0 };
+      if (!b.w || b.w <= maxW) break;
+      o.size = Math.max(6, Math.round(o.size * (maxW / b.w) * 0.97));
+    }
+    o._cache = null;
+    textObjectCanvas(o);
+  }
+
+  /* Templates must still fit after a web font finishes loading. */
+  function refitTemplateObjects() {
+    var changed = false;
+    S.objects.forEach(function (o) {
+      if (!o.fitMax || o.type !== 'text') return;
+      var before = o.size;
+      fitTextObject(o, o.fitMax);
+      if (o.size !== before) changed = true;
+    });
+    if (changed) { render(); renderObjects(); }
+    return changed;
+  }
+
+  function templateById(id) {
+    for (var i = 0; i < TEMPLATE_LAYOUTS.length; i++) if (TEMPLATE_LAYOUTS[i].id === id) return TEMPLATE_LAYOUTS[i];
+    return null;
+  }
+
+  function applyTemplate(id) {
+    var t = templateById(id);
+    if (!t) return;
+    newDoc(t.w, t.h);
+    var base = S.layers[0];
+    base.ctx.save();
+    if (t.bg2) {
+      var g = base.ctx.createLinearGradient(0, 0, t.w, t.h);
+      g.addColorStop(0, t.bg);
+      g.addColorStop(1, t.bg2);
+      base.ctx.fillStyle = g;
+    } else {
+      base.ctx.fillStyle = t.bg;
+    }
+    base.ctx.fillRect(0, 0, t.w, t.h);
+    base.ctx.restore();
+
+    t.texts.forEach(function (tx) {
+      var obj = ({
+        id: newObjectId(), type: 'text', visible: true,
+        text: tx.text,
+        font: tx.font || "'Press Start 2P', monospace",
+        size: Math.max(6, Math.round((tx.size || 0.06) * t.h)),
+        bold: tx.bold !== false, italic: false,
+        gradient: false, grad2: '#38bdf8',
+        stroke: tx.stroke || 0, strokeColor: tx.strokeColor || '#000000',
+        shadow: 0, shadowColor: '#000000',
+        curve: tx.curve || 0, depth: tx.depth || 0, depthColor: '#2b2b3a', angle: 225,
+        reflection: false, emboss: false,
+        color: tx.color || '#ffffff',
+        x: Math.round((tx.x == null ? 0.06 : tx.x) * t.w),
+        y: Math.round(tx.y * t.h)
+      });
+      obj.fitMax = t.w * 0.88;
+      S.objects.push(obj);
+      fitTextObject(obj, obj.fitMax);
+    });
+
+    pushHistory(); fitZoom(); render(); renderObjects(); renderLayers(); updateStatus();
+    openTab('text');
+    setTimeout(function () { refitTemplateObjects(); pushHistory(); }, 350);
+    toast(t.name + ' template ready — tap a text to edit it');
+  }
+
+  function renderTemplateRow() {
+    var box = byId('template-row');
+    if (!box) return;
+    box.innerHTML = '';
+    TEMPLATE_LAYOUTS.forEach(function (t) {
+      var b = document.createElement('button');
+      b.className = 'template-card';
+      b.innerHTML = '<b>' + t.name + '</b><small>' + t.w + '×' + t.h + '</small>';
+      b.style.background = 'linear-gradient(135deg, ' + t.bg + ', ' + (t.bg2 || t.bg) + ')';
+      b.onclick = function () {
+        var st = byId('start');
+        if (st) st.hidden = true;
+        applyTemplate(t.id);
+      };
+      box.appendChild(b);
+    });
+  }
+
+  function templatesDialog() {
+    modal('Templates',
+      '<div class="template-row" id="dlg-templates">' +
+      TEMPLATE_LAYOUTS.map(function (t) {
+        return '<button class="template-card" data-tpl="' + t.id + '" style="background:linear-gradient(135deg,' + t.bg + ',' + (t.bg2 || t.bg) + ')">' +
+          '<b>' + t.name + '</b><small>' + t.w + '×' + t.h + '</small></button>';
+      }).join('') +
+      '</div><p class="hint">A template opens a fresh document with a background and editable text objects.</p>',
+      function () {}, 'Close');
+    $$('#dlg-templates .template-card').forEach(function (b) {
+      b.onclick = function () {
+        var ov = b.closest('.overlay');
+        if (ov) ov.remove();
+        applyTemplate(b.dataset.tpl);
+      };
+    });
+  }
+
   var TEMPLATES = [
     { label: 'Square 64', w: 64, h: 64 },
     { label: 'Sprite 32', w: 32, h: 32 },
@@ -2134,11 +2294,12 @@
     setColor('#ffffff', true);
     set3DMode('text');
     renderStickerGrid();
+    renderTemplateRow();
     renderObjects();
     renderFontList();
     syncTextControls();
     if (document.fonts && document.fonts.ready) {
-      document.fonts.ready.then(markFontAvailability);
+      document.fonts.ready.then(function () { markFontAvailability(); refitTemplateObjects(); });
     }
     setTimeout(markFontAvailability, 2500);
     newDoc(64, 64);
