@@ -75,7 +75,7 @@ Everything is organised around one canvas:
 **Colour and background**
 - Primary/secondary colours, hex field, native picker
 - Palettes: DawnBringer 16, PICO-8, Sweetie 16, Game Boy, NES, Grayscale 8, Sepia 8 — or build your own
-- Background fill in a solid colour or a gradient
+- Background fill in a solid colour, a linear gradient or a radial gradient
 
 **Effects**
 - Live brightness, contrast, saturation and hue with apply/reset
@@ -130,6 +130,7 @@ tests/core.test.js  unit tests for js/core.js
 tests/ui.js         headless browser test: boots the app and drives every control
 manifest.json       PWA manifest (installable app)
 sw.js               service worker caching the app shell for offline use
+js/effects-worker.js  web worker that runs filters, palette and dithering off the main thread
 icons/              app icons (192 and 512 px)
 docs/preview.png    screenshot used above
 ```
