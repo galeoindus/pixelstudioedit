@@ -1,6 +1,6 @@
 /* Pixel Studio Edit — offline shell.
    Cache-first for the app shell, network-first for everything else. */
-const VERSION = 'pse-v1';
+const VERSION = 'pse-v2';
 const SHELL = [
   './',
   'index.html',
