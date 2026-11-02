@@ -423,16 +423,22 @@
   function render() {
     var z = effZoom();
     var W = Math.max(1, Math.round(S.w * z)), H = Math.max(1, Math.round(S.h * z));
+    /* Device pixel ratio: the backing store is denser than the CSS box, so text and
+       edges stay sharp on retina screens without changing document coordinates. */
+    var dpr = Math.min(3, Math.max(1, window.devicePixelRatio || 1));
+    var bw = Math.round(W * dpr), bh = Math.round(H * dpr);
 
     [screen, bgCanvas, overlayCanvas].forEach(function (cv) {
-      if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+      if (cv.width !== bw || cv.height !== bh) { cv.width = bw; cv.height = bh; }
+      cv.style.width = W + 'px';
+      cv.style.height = H + 'px';
     });
-    /* the backing store is W×H; the artboard's CSS box must follow the camera */
     stage.style.width = W + 'px';
     stage.style.height = H + 'px';
 
     /* --- layer 1: background, checkerboard and grid (only on viewport change) */
-    bgCtx.setTransform(1, 0, 0, 1, 0, 0);
+    bgCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+    bgCtx.imageSmoothingEnabled = false;
     bgCtx.clearRect(0, 0, W, H);
     if (S.showChecker) drawChecker(bgCtx, W, H);
     if (S.showGrid && z >= 6 && z <= 20) {
@@ -447,7 +453,7 @@
     }
 
     /* --- layer 2: document content ------------------------------------------ */
-    screenCtx.setTransform(1, 0, 0, 1, 0, 0);
+    screenCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     screenCtx.clearRect(0, 0, W, H);
     screenCtx.imageSmoothingEnabled = false;
     screenCtx.drawImage(composite(), 0, 0, W, H);
@@ -466,7 +472,7 @@
       screenCtx.drawImage(prevCv, 0, 0, W, H);
     }
 
-    overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+    overlayCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     overlayCtx.clearRect(0, 0, W, H);
 
     var selObj = selectedObject();
@@ -1149,9 +1155,74 @@
     pushHistory(); render(); renderLayers();
   }
 
+  /* ------------------------------------------------- image worker (blueprint §5) */
+
+  var effectWorker = null, effectSeq = 0, effectPending = {};
+
+  function ensureEffectWorker() {
+    if (effectWorker !== null) return effectWorker;
+    try {
+      effectWorker = new Worker('js/effects-worker.js');
+      effectWorker.onmessage = function (e) {
+        var d = e.data || {};
+        var pending = effectPending[d.id];
+        if (!pending) return;
+        delete effectPending[d.id];
+        if (d.error) { pending.reject(new Error(d.error)); return; }
+        pending.resolve({ width: d.w, height: d.h, data: new Uint8ClampedArray(d.buffer) });
+      };
+      effectWorker.onerror = function () {
+        Object.keys(effectPending).forEach(function (k) {
+          effectPending[k].reject(new Error('worker failed'));
+          delete effectPending[k];
+        });
+        effectWorker = false;
+      };
+    } catch (err) {
+      effectWorker = false;
+    }
+    return effectWorker;
+  }
+
+  function workerEffect(op, img, params) {
+    return new Promise(function (resolve, reject) {
+      var w = ensureEffectWorker();
+      if (!w) { reject(new Error('no worker')); return; }
+      var id = ++effectSeq;
+      effectPending[id] = { resolve: resolve, reject: reject };
+      var buf = img.data.slice().buffer;
+      w.postMessage({ id: id, op: op, buffer: buf, w: S.w, h: S.h, params: params || {} }, [buf]);
+    });
+  }
+
+  function effectParams(name) {
+    switch (name) {
+      case 'posterize': return { levels: +byId('fx-levels').value };
+      case 'threshold': return { level: 128 };
+      case 'blur': return { radius: +byId('fx-blur').value };
+      case 'noise': return { amount: +byId('fx-noise').value, seed: Date.now() % 99991 };
+      case 'vignette': return { strength: 0.7 };
+      case 'stripes': return { period: 4, alpha: 0.18 };
+      case 'outline': return { color: byId('outline-color').value, width: +byId('outline-width').value };
+      case 'shadow': return { dx: +byId('shadow-dx').value, dy: +byId('shadow-dy').value, color: byId('shadow-color').value, alpha: 1 };
+      default: return {};
+    }
+  }
+
+  /* Runs an effect in the worker when possible, on the main thread otherwise. */
   function runEffect(name) {
     var got = readLayer();
     if (!got) return;
+    var params = effectParams(name);
+    workerEffect(name, got.img, params).then(function (out) {
+      got.layer.ctx.putImageData(new ImageData(new Uint8ClampedArray(out.data), S.w, S.h), 0, 0);
+      pushHistory(); render(); renderLayers();
+    }).catch(function () {
+      applyEffectSync(name, got);
+    });
+  }
+
+  function applyEffectSync(name, got) {
     var img = got.img;
     switch (name) {
       case 'invert': C.invert(img); break;
@@ -1200,10 +1271,16 @@
     var got = readLayer();
     if (!got) return;
     var pal = selectedDitherPalette();
-    if (mode === 'quantize') C.quantize(got.img, pal);
-    else if (mode === 'fs') C.ditherFloydSteinberg(got.img, pal);
-    else C.ditherBayer(got.img, pal, 32);
-    commitLayer(got.layer, got.img);
+    var op = mode === 'quantize' ? 'quantize' : (mode === 'fs' ? 'ditherFS' : 'ditherBayer');
+    workerEffect(op, got.img, { palette: pal, strength: 32 }).then(function (out) {
+      got.layer.ctx.putImageData(new ImageData(new Uint8ClampedArray(out.data), S.w, S.h), 0, 0);
+      pushHistory(); render(); renderLayers();
+    }).catch(function () {
+      if (mode === 'quantize') C.quantize(got.img, pal);
+      else if (mode === 'fs') C.ditherFloydSteinberg(got.img, pal);
+      else C.ditherBayer(got.img, pal, 32);
+      commitLayer(got.layer, got.img);
+    });
   }
 
   function fillBackground(mode) {
@@ -1211,7 +1288,12 @@
     if (!l) return;
     var ctx = l.ctx;
     ctx.save();
-    if (mode === 'gradient') {
+    if (mode === 'radial') {
+      var rg = ctx.createRadialGradient(S.w / 2, S.h / 2, 1, S.w / 2, S.h / 2, Math.max(S.w, S.h) / 1.4);
+      rg.addColorStop(0, S.color);
+      rg.addColorStop(1, S.color2);
+      ctx.fillStyle = rg;
+    } else if (mode === 'gradient') {
       var g = ctx.createLinearGradient(0, 0, S.w, S.h);
       g.addColorStop(0, S.color);
       g.addColorStop(1, S.color2);
@@ -1222,7 +1304,7 @@
     ctx.fillRect(0, 0, S.w, S.h);
     ctx.restore();
     pushHistory(); render(); renderLayers();
-    toast(mode === 'gradient' ? 'Gradient background' : 'Background filled');
+    toast(mode === 'gradient' ? 'Gradient background' : (mode === 'radial' ? 'Radial background' : 'Background filled'));
   }
 
   function removeBackground(white) {
@@ -2200,6 +2282,7 @@
     on('reset-palette', 'click', function () { loadPalette(byId('palette-select').value); });
     on('bg-colour', 'click', function () { fillBackground('colour'); });
     on('bg-gradient', 'click', function () { fillBackground('gradient'); });
+    on('bg-radial', 'click', function () { fillBackground('radial'); });
 
     // groups and masks
     on('group-add', 'click', addGroup);
@@ -2410,6 +2493,20 @@
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', function (e) { if (e.code === 'Space') S.spaceDown = false; });
     window.addEventListener('resize', function () { fitZoom(); });
+
+    /* On-screen keyboard: shrink the shell instead of letting it overflow. */
+    function syncViewport() {
+      var kb = 0;
+      if (window.visualViewport) {
+        kb = Math.max(0, window.innerHeight - window.visualViewport.height - window.visualViewport.offsetTop);
+      }
+      document.documentElement.style.setProperty('--kb', Math.round(kb) + 'px');
+    }
+    if (window.visualViewport) {
+      window.visualViewport.addEventListener('resize', function () { syncViewport(); fitZoom(); });
+      window.visualViewport.addEventListener('scroll', syncViewport);
+    }
+    syncViewport();
     on('sheet-grab', 'click', function () {
       byId('side').classList.toggle('open');
       setTimeout(fitZoom, 260);
