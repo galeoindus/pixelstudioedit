@@ -39,6 +39,10 @@
         <small>Turn a photo into pixel art with palette and dithering</small>
       </button>
     </div>
+    <div class="start-templates" id="start-templates">
+      <span class="start-templates-label">Or start from a template</span>
+      <div class="template-row" id="template-row"></div>
+    </div>
     <div class="start-foot">
       <button class="btn" id="start-open">Open a project…</button>
       <button class="btn" id="start-skip">Continue where I left off</button>
@@ -66,6 +70,7 @@
     <button class="menu-item" id="m-import">Import image…</button>
     <button class="menu-item accent" id="m-export">Export PNG…</button>
     <div class="menu-sep"></div>
+    <button class="menu-item" id="m-templates">Templates…</button>
     <button class="menu-item" id="m-canvas">Canvas size &amp; transform…</button>
     <button class="menu-item" id="m-restore">Restore autosave</button>
     <button class="menu-item" id="m-help">Keyboard shortcuts</button>
@@ -173,7 +178,7 @@
             <button class="btn" id="font-upload-btn">Use my own font…</button>
             <span class="hint-inline" id="font-note"></span>
           </div>
-          <div class="row"><label>Size</label><input type="range" id="text-size" min="4" max="64" value="12"><b id="text-size-val">12</b></div>
+          <div class="row"><label>Size</label><input type="range" id="text-size" min="4" max="400" value="12"><b id="text-size-val">12</b></div>
           <div class="row tight">
             <button class="toggle on" id="text-bold">Bold</button>
             <button class="toggle" id="text-italic">Italic</button>
