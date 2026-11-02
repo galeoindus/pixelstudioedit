@@ -88,7 +88,8 @@ Everything is organised around one canvas:
 
 **Files**
 - Export **PNG, JPEG or WebP** at 1×–20× with nearest-neighbour upscaling and a quality slider
-- Save/open projects as `.json` (layers preserved), import images onto a new layer
+- Save/open projects as `.json` (layers preserved)
+- **Import a photo at its native size** — "Edit a photo" resizes the document to the image first and draws it 1:1, so photos stay sharp instead of being downsampled and blown back up
 - Autosave to local storage, restorable at any time
 
 ## Getting started
