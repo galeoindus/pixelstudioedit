@@ -64,6 +64,7 @@
   };
 
   var screen, screenCtx, stage, stageWrap;
+  var bgCanvas, bgCtx, overlayCanvas, overlayCtx;
   var compCv = document.createElement('canvas');
   var compCtx = compCv.getContext('2d');
   var prevCv = document.createElement('canvas');
@@ -218,8 +219,9 @@
   /* --------------------------------------------------------------- rendering */
 
   function effZoom() {
-    var max = Math.floor(Math.sqrt(MAX_BACKING / Math.max(1, S.w * S.h)));
-    return Math.max(1, Math.min(S.zoom, Math.max(1, max)));
+    var max = Math.sqrt(MAX_BACKING / Math.max(1, S.w * S.h));
+    /* fractional scales are allowed so a large artboard can always fit the screen */
+    return Math.max(0.05, Math.min(S.zoom, Math.max(0.05, max)));
   }
 
   function composite() {
@@ -286,14 +288,34 @@
 
   function render() {
     var z = effZoom();
-    var W = S.w * z, H = S.h * z;
-    if (screen.width !== W || screen.height !== H) { screen.width = W; screen.height = H; }
+    var W = Math.max(1, Math.round(S.w * z)), H = Math.max(1, Math.round(S.h * z));
 
+    [screen, bgCanvas, overlayCanvas].forEach(function (cv) {
+      if (cv.width !== W || cv.height !== H) { cv.width = W; cv.height = H; }
+    });
+    /* the backing store is W×H; the artboard's CSS box must follow the camera */
+    stage.style.width = W + 'px';
+    stage.style.height = H + 'px';
+
+    /* --- layer 1: background, checkerboard and grid (only on viewport change) */
+    bgCtx.setTransform(1, 0, 0, 1, 0, 0);
+    bgCtx.clearRect(0, 0, W, H);
+    if (S.showChecker) drawChecker(bgCtx, W, H);
+    if (S.showGrid && z >= 6 && z <= 20) {
+      bgCtx.save();
+      bgCtx.strokeStyle = 'rgba(255,255,255,0.055)';
+      bgCtx.lineWidth = 1;
+      bgCtx.beginPath();
+      for (var gx = 1; gx < S.w; gx++) { bgCtx.moveTo(gx * z + 0.5, 0); bgCtx.lineTo(gx * z + 0.5, H); }
+      for (var gy = 1; gy < S.h; gy++) { bgCtx.moveTo(0, gy * z + 0.5); bgCtx.lineTo(W, gy * z + 0.5); }
+      bgCtx.stroke();
+      bgCtx.restore();
+    }
+
+    /* --- layer 2: document content ------------------------------------------ */
     screenCtx.setTransform(1, 0, 0, 1, 0, 0);
     screenCtx.clearRect(0, 0, W, H);
     screenCtx.imageSmoothingEnabled = false;
-
-    if (S.showChecker) drawChecker(screenCtx, W, H);
     screenCtx.drawImage(composite(), 0, 0, W, H);
 
     if (S.floating) {
@@ -310,26 +332,18 @@
       screenCtx.drawImage(prevCv, 0, 0, W, H);
     }
 
-    if (S.showGrid && z >= 6 && z <= 20) {
-      screenCtx.save();
-      screenCtx.strokeStyle = 'rgba(255,255,255,0.055)';
-      screenCtx.lineWidth = 1;
-      screenCtx.beginPath();
-      for (var x = 1; x < S.w; x++) { screenCtx.moveTo(x * z + 0.5, 0); screenCtx.lineTo(x * z + 0.5, H); }
-      for (var y = 1; y < S.h; y++) { screenCtx.moveTo(0, y * z + 0.5); screenCtx.lineTo(W, y * z + 0.5); }
-      screenCtx.stroke();
-      screenCtx.restore();
-    }
+    overlayCtx.setTransform(1, 0, 0, 1, 0, 0);
+    overlayCtx.clearRect(0, 0, W, H);
 
     var selObj = selectedObject();
     if (selObj && selObj.visible) {
       var b = objectBounds(selObj);
-      screenCtx.save();
-      screenCtx.strokeStyle = '#60a5fa';
-      screenCtx.lineWidth = 1.5;
-      screenCtx.setLineDash([5, 3]);
-      screenCtx.strokeRect(b.x * z - 1, b.y * z - 1, b.w * z + 2, b.h * z + 2);
-      screenCtx.restore();
+      overlayCtx.save();
+      overlayCtx.strokeStyle = '#60a5fa';
+      overlayCtx.lineWidth = 1.5;
+      overlayCtx.setLineDash([5, 3]);
+      overlayCtx.strokeRect(b.x * z - 1, b.y * z - 1, b.w * z + 2, b.h * z + 2);
+      overlayCtx.restore();
     }
 
     var selRect = S.sel;
@@ -337,12 +351,12 @@
       selRect = normalizeRect(S.drag.start, S.drag.cur);
     }
     if (selRect && selRect.w > 0 && selRect.h > 0) {
-      screenCtx.save();
-      screenCtx.strokeStyle = '#6ee7b7';
-      screenCtx.lineWidth = 1;
-      screenCtx.setLineDash([4, 3]);
-      screenCtx.strokeRect(selRect.x * z + 0.5, selRect.y * z + 0.5, selRect.w * z - 1, selRect.h * z - 1);
-      screenCtx.restore();
+      overlayCtx.save();
+      overlayCtx.strokeStyle = '#6ee7b7';
+      overlayCtx.lineWidth = 1;
+      overlayCtx.setLineDash([4, 3]);
+      overlayCtx.strokeRect(selRect.x * z + 0.5, selRect.y * z + 0.5, selRect.w * z - 1, selRect.h * z - 1);
+      overlayCtx.restore();
     }
 
     byId('zoom-label').textContent = Math.round(z * 100) + '%';
@@ -363,15 +377,19 @@
   }
 
   function fitZoom() {
-    var pad = 56;
-    var zx = (stageWrap.clientWidth - pad) / S.w;
-    var zy = (stageWrap.clientHeight - pad) / S.h;
-    S.zoom = Math.max(1, Math.min(16, Math.floor(Math.min(zx, zy)) || 1));
+    var pad = 24;
+    var vw = Math.max(80, stageWrap.clientWidth - pad);
+    var vh = Math.max(80, stageWrap.clientHeight - pad);
+    var z = Math.min(vw / S.w, vh / S.h);
+    /* keep pixels crisp when we can, but never overflow the viewport */
+    if (z >= 1) z = Math.floor(z);
+    S.zoom = Math.max(0.05, Math.min(16, z));
     render();
   }
 
   function setZoom(z) {
-    S.zoom = Math.max(1, Math.min(64, Math.round(z)));
+    S.zoom = Math.max(0.05, Math.min(64, z));
+    if (S.zoom >= 1) S.zoom = Math.round(S.zoom);
     render();
   }
 
@@ -1621,6 +1639,7 @@
 
   function openTab(name) {
     S.tab = name;
+    setTimeout(fitZoom, 260);
     $$('#tabs .tab').forEach(function (b) { b.classList.toggle('active', b.dataset.tab === name); });
     $$('.pane').forEach(function (p) { p.classList.toggle('active', p.dataset.pane === name); });
     byId('side').classList.add('open');
@@ -1641,6 +1660,10 @@
   function bindUI() {
     screen = byId('screen');
     screenCtx = screen.getContext('2d');
+    bgCanvas = byId('bg-layer');
+    bgCtx = bgCanvas.getContext('2d');
+    overlayCanvas = byId('overlay');
+    overlayCtx = overlayCanvas.getContext('2d');
     stage = byId('stage');
     stageWrap = byId('stage-wrap');
 
@@ -1770,8 +1793,8 @@
     on('q-mirror-y', 'click', function () { S.symY = !S.symY; this.classList.toggle('on', S.symY); });
     on('q-grid', 'click', function () { S.showGrid = !S.showGrid; this.classList.toggle('on', S.showGrid); render(); });
     on('q-checker', 'click', function () { S.showChecker = !S.showChecker; this.classList.toggle('on', S.showChecker); render(); });
-    on('zoom-in', 'click', function () { setZoom(effZoom() + 1); });
-    on('zoom-out', 'click', function () { setZoom(effZoom() - 1); });
+    on('zoom-in', 'click', function () { setZoom(effZoom() < 1 ? effZoom() * 1.5 : effZoom() + 1); });
+    on('zoom-out', 'click', function () { setZoom(effZoom() <= 1 ? effZoom() / 1.5 : effZoom() - 1); });
     on('zoom-fit', 'click', fitZoom);
     stageWrap.addEventListener('wheel', function (e) {
       if (!e.ctrlKey && !e.metaKey && Math.abs(e.deltaY) < 4) return;
@@ -1988,7 +2011,11 @@
 
     window.addEventListener('keydown', onKeyDown);
     window.addEventListener('keyup', function (e) { if (e.code === 'Space') S.spaceDown = false; });
-    window.addEventListener('resize', function () { render(); });
+    window.addEventListener('resize', function () { fitZoom(); });
+    on('sheet-grab', 'click', function () {
+      byId('side').classList.toggle('open');
+      setTimeout(fitZoom, 260);
+    });
   }
 
   function swapColours() {
