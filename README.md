@@ -17,12 +17,18 @@ The app opens on a **start screen** with the three jobs it is built for — Crea
 Everything is organised around one canvas:
 
 - **Left rail** — eleven named tools (Pen, Erase, Fill, Pick, Line, Rect, Oval, Select, Crop, Text, Pan), each with its keyboard shortcut. The colour chip at the bottom swaps primary/secondary.
-- **Quick bar** — brush size, opacity, mirror X/Y and the pixel grid, always within reach while drawing.
+- **Quick bar** — brush size, opacity, mirror X/Y, the pixel grid, a **pixel-art mode** toggle and the transparency grid, always within reach while drawing.
 - **Right panel** (bottom sheet on phones) — seven tabs: **Text, Sticker, Photo, Colour, Layers, FX, 3D**. One panel at a time, so nothing is buried in a collapsed accordion.
 - **Save status** in the top bar tells you whether the project is saved, unsaved or autosaved.
-- **Canvas chip** in the top bar — size, resize, flip and rotate. **New document** offers banner and social templates (Instagram 1080, Story 1080×1920, YouTube 1280×720, Banner 1500×500, Meme 800×600, Poster 1080×1350).
+- **Canvas chip** in the top bar — size, resize, flip and rotate. A new document opens at a design-sized artboard (1080 px), and **New document** offers banner and social templates (Instagram 1080, Story 1080×1920, YouTube 1280×720, Banner 1500×500, Meme 800×600, Poster 1080×1350).
 - **Full-screen canvas** — the ⛶ button hides every panel for distraction-free drawing (and asks the browser for real full screen).
 - **File menu** — New, Open, Save, Import image, Export, Templates, Canvas, Restore autosave, and a **Quick guide** that walks through start, text, objects, photo tools and export.
+
+## Two kinds of canvas, one editor
+
+The artboard renders **smooth by default** — photos, gradients and text are anti-aliased, brush strokes are drawn as continuous round-capped lines, and zoom is continuous — so editing a photo never looks like a grid of blocks. Turn on **pixel-art mode** (the ▩ button in the quick bar) for the opposite behaviour: crisp nearest-neighbour pixels, whole-number zoom steps and an optional pixel grid, which is what a 32×32 sprite needs.
+
+The modes follow the job you picked on the start screen: *Create a design* and *Edit a photo* stay smooth, *Make pixel art* switches to crisp automatically. Each new document also picks a sensible brush size for its scale, so a 1080 px poster does not start with a 1 px brush.
 
 ## Features
 
@@ -63,8 +69,11 @@ Everything is organised around one canvas:
 
 **Drawing**
 - Pencil, eraser, fill bucket, line, rectangle, ellipse, eyedropper, rectangular select + move, text, pan
-- Brush size 1–24 px, opacity, fill tolerance, filled or outlined shapes
+- **Smooth anti-aliased strokes** with round caps in design/photo mode, and hard pixel-perfect stamps in pixel-art mode
+- Strokes are painted into their own buffer and composited once, so a semi-transparent line never darkens where it overlaps itself
+- Brush size 1–24 px (default scales with the document), opacity, fill tolerance, filled or outlined shapes
 - Mirror on X, Y, or both; pixel grid; transparency checkerboard; right-click draws with the secondary colour
+- **Ctrl/⌘ + wheel** zooms; a plain wheel scrolls the pasteboard; **Space** or the middle button pans
 
 **Layers, groups and masks**
 - Unlimited layers: visibility, lock, rename, reorder, duplicate, delete, merge down, clear
