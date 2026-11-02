@@ -367,6 +367,24 @@
       overlayCtx.setLineDash([5, 3]);
       overlayCtx.strokeRect(b.x * z - 1, b.y * z - 1, b.w * z + 2, b.h * z + 2);
       overlayCtx.restore();
+
+      var hs = handlesFor(selObj);
+      var hs2 = 8;
+      overlayCtx.save();
+      overlayCtx.fillStyle = '#0e1116';
+      overlayCtx.strokeStyle = '#60a5fa';
+      overlayCtx.lineWidth = 1.5;
+      ['nw', 'ne', 'sw', 'se'].forEach(function (k) {
+        overlayCtx.beginPath();
+        overlayCtx.rect(hs[k].x * z - hs2 / 2, hs[k].y * z - hs2 / 2, hs2, hs2);
+        overlayCtx.fill();
+        overlayCtx.stroke();
+      });
+      overlayCtx.beginPath();
+      overlayCtx.arc(hs.rot.x * z, hs.rot.y * z, hs2 / 2 + 1, 0, Math.PI * 2);
+      overlayCtx.fillStyle = '#60a5fa';
+      overlayCtx.fill();
+      overlayCtx.restore();
     }
 
     var selRect = S.sel;
@@ -704,6 +722,31 @@
       S.preview = { tool: S.tool, x0: p.x, y0: p.y, x1: p.x, y1: p.y, color: color };
       render();
     } else if (S.tool === 'select') {
+      var selNow = selectedObject();
+      if (selNow && selNow.visible) {
+        var hh = handlesFor(selNow);
+        var tolD = 12 / Math.max(0.2, effZoom());
+        var grabbed = null;
+        Object.keys(hh).forEach(function (k) {
+          if (grabbed) return;
+          if (Math.abs(p.x - hh[k].x) <= tolD && Math.abs(p.y - hh[k].y) <= tolD) grabbed = k;
+        });
+        if (grabbed) {
+          var bb = objectBounds(selNow);
+          S.drag = {
+            type: grabbed === 'rot' ? 'rotate' : 'resize',
+            handle: grabbed,
+            obj: selNow,
+            start: p,
+            startBounds: { x: bb.x, y: bb.y, w: bb.w, h: bb.h },
+            startSize: selNow.size || 12,
+            startRotation: selNow.rotation || 0,
+            changed: false
+          };
+          render();
+          return;
+        }
+      }
       var hit = objectAt(p);
       if (hit) {
         S.selectedObj = hit.id;
@@ -775,6 +818,34 @@
     } else if (S.drag.type === 'shape') {
       S.preview.x1 = p.x; S.preview.y1 = p.y;
       render();
+    } else if (S.drag.type === 'resize') {
+      var ob = S.drag.obj, sb = S.drag.startBounds, hdl = S.drag.handle;
+      var dx = p.x - S.drag.start.x, dy = p.y - S.drag.start.y;
+      var nx = sb.x, ny = sb.y, nw = sb.w, nh = sb.h;
+      if (hdl === 'se') { nw = sb.w + dx; nh = sb.h + dy; }
+      else if (hdl === 'sw') { nx = sb.x + dx; nw = sb.w - dx; nh = sb.h + dy; }
+      else if (hdl === 'ne') { ny = sb.y + dy; nw = sb.w + dx; nh = sb.h - dy; }
+      else if (hdl === 'nw') { nx = sb.x + dx; ny = sb.y + dy; nw = sb.w - dx; nh = sb.h - dy; }
+      nw = Math.max(4, nw); nh = Math.max(4, nh);
+      if (ob.type === 'shape') {
+        ob.x = Math.round(nx); ob.y = Math.round(ny);
+        ob.w = Math.round(nw); ob.h = Math.round(nh);
+        ob._bounds = null;
+      } else {
+        var scale = Math.max(0.2, nw / Math.max(1, sb.w));
+        ob.size = Math.max(6, Math.round(S.drag.startSize * scale));
+        ob._cache = null;
+      }
+      S.drag.changed = true;
+      render();
+    } else if (S.drag.type === 'rotate') {
+      var o2 = S.drag.obj, b2 = objectBounds(o2);
+      var cx2 = b2.x + b2.w / 2, cy2 = b2.y + b2.h / 2;
+      var ang = Math.atan2(p.y - cy2, p.x - cx2) * 180 / Math.PI + 90;
+      o2.rotation = Math.round(ang);
+      o2._cache = null;
+      S.drag.changed = true;
+      render();
     } else if (S.drag.type === 'objmove') {
       var o = S.drag.obj;
       o.x = S.drag.ox + (p.x - S.drag.start.x);
@@ -805,6 +876,8 @@
       if (l && S.preview) { drawShape(l.ctx, S.preview); pushHistory(); }
       S.preview = null;
       render(); renderLayers();
+    } else if (d.type === 'resize' || d.type === 'rotate') {
+      if (d.changed) { pushHistory(); renderObjects(); }
     } else if (d.type === 'objmove') {
       if (d.moved) { pushHistory(); renderObjects(); }
     } else if (d.type === 'crop') {
@@ -1234,8 +1307,38 @@
     return cv;
   }
 
+  /* Rotates a document-sized canvas around a point (used for object rotation). */
+  function rotateAbout(src, angleDeg, cx, cy) {
+    if (!angleDeg) return src;
+    var out = offscreen(S.w, S.h);
+    var c = out.getContext('2d');
+    c.translate(cx, cy);
+    c.rotate(angleDeg * Math.PI / 180);
+    c.translate(-cx, -cy);
+    c.drawImage(src, 0, 0);
+    return out;
+  }
+
   function objectCanvas(o) {
-    return o.type === 'text' ? textObjectCanvas(o) : shapeObjectCanvas(o);
+    var cv = o.type === 'text' ? textObjectCanvas(o) : shapeObjectCanvas(o);
+    if (cv && o.rotation) {
+      var b = o._bounds || { x: o.x, y: o.y, w: 1, h: 1 };
+      cv = rotateAbout(cv, o.rotation, b.x + b.w / 2, b.y + b.h / 2);
+    }
+    return cv;
+  }
+
+  /* Handle positions in document coordinates. */
+  function handlesFor(o) {
+    var b = objectBounds(o);
+    var tol = 10 / Math.max(0.2, effZoom());
+    return {
+      nw: { x: b.x, y: b.y },
+      ne: { x: b.x + b.w, y: b.y },
+      sw: { x: b.x, y: b.y + b.h },
+      se: { x: b.x + b.w, y: b.y + b.h },
+      rot: { x: b.x + b.w / 2, y: b.y - tol * 1.6 }
+    };
   }
 
   function objectBounds(o) {
@@ -1332,6 +1435,50 @@
     Object.keys(p).forEach(function (k) { S.text[k] = p[k]; });
     syncTextControls();
     toast('Style: ' + name);
+  }
+
+  /* Small live previews for each text style preset. */
+  function renderStyleThumbs() {
+    $$('[data-style]').forEach(function (btn) {
+      var preset = btn.dataset.style;
+      var cv = document.createElement('canvas');
+      cv.width = 96; cv.height = 40;
+      var c = cv.getContext('2d');
+      c.clearRect(0, 0, 96, 40);
+      c.font = 'bold 22px ' + (S.text.font || 'sans-serif');
+      c.textBaseline = 'middle';
+      var styles = {
+        plain: { stroke: 0, shadow: 0, depth: 0 },
+        poster: { stroke: 2, shadow: 0, depth: 4 },
+        neon: { stroke: 1, shadow: 4, depth: 0 }
+      };
+      var st = styles[preset] || styles.plain;
+      c.save();
+      if (st.shadow) {
+        c.globalAlpha = 0.6;
+        c.fillStyle = S.text.shadowColor || '#000000';
+        c.fillText('Aa', 8 + st.shadow, 20 + st.shadow);
+        c.globalAlpha = 1;
+      }
+      if (st.depth) {
+        c.fillStyle = S.text.depthColor || '#2b2b3a';
+        for (var d = st.depth; d > 0; d--) c.fillText('Aa', 8 + d, 20 + d);
+      }
+      if (st.stroke) {
+        c.strokeStyle = S.text.strokeColor || '#000000';
+        c.lineWidth = st.stroke;
+        c.strokeText('Aa', 8, 20);
+      }
+      c.fillStyle = S.color;
+      c.fillText('Aa', 8, 20);
+      c.restore();
+      btn.innerHTML = '';
+      btn.appendChild(cv);
+      var label = document.createElement('span');
+      label.textContent = preset.charAt(0).toUpperCase() + preset.slice(1);
+      btn.appendChild(label);
+      btn.classList.add('style-thumb');
+    });
   }
 
   function syncTextControls() {
@@ -1959,7 +2106,10 @@
       if (!el) return;
       el.addEventListener('change', function () { if (updateSelectedText()) pushHistory(); });
     });
-    $$('[data-style]').forEach(function (b) { b.onclick = function () { applyStylePreset(b.dataset.style); }; });
+    $$('[data-style]').forEach(function (b) {
+      b.onclick = function () { applyStylePreset(b.dataset.style); renderStyleThumbs(); };
+    });
+    renderStyleThumbs();
 
     [['text-size', 'text-size-val'], ['text-stroke', 'text-stroke-val'], ['text-shadow', 'text-shadow-val'],
      ['text-curve', 'text-curve-val'], ['text-depth', 'text-depth-val'], ['sticker-size', 'sticker-size-val'],
@@ -2440,6 +2590,13 @@
     render: render,
     buildTextCanvas: buildTextCanvas
   };
+
+  /* Installable / offline: register the app-shell service worker where allowed. */
+  if ('serviceWorker' in navigator && (location.protocol === 'https:' || location.hostname === 'localhost')) {
+    window.addEventListener('load', function () {
+      navigator.serviceWorker.register('sw.js').catch(function () { /* offline shell is optional */ });
+    });
+  }
 
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', boot);
   else boot();
