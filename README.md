@@ -22,7 +22,7 @@ Everything is organised around one canvas:
 - **Save status** in the top bar tells you whether the project is saved, unsaved or autosaved.
 - **Canvas chip** in the top bar — size, resize, flip and rotate. **New document** offers banner and social templates (Instagram 1080, Story 1080×1920, YouTube 1280×720, Banner 1500×500, Meme 800×600, Poster 1080×1350).
 - **Full-screen canvas** — the ⛶ button hides every panel for distraction-free drawing (and asks the browser for real full screen).
-- **File menu** — New, Open, Save, Import image, Export PNG, Canvas, Restore autosave, Shortcuts.
+- **File menu** — New, Open, Save, Import image, Export, Templates, Canvas, Restore autosave, and a **Quick guide** that walks through start, text, objects, photo tools and export.
 
 ## Features
 
@@ -66,8 +66,10 @@ Everything is organised around one canvas:
 - Brush size 1–24 px, opacity, fill tolerance, filled or outlined shapes
 - Mirror on X, Y, or both; pixel grid; transparency checkerboard; right-click draws with the secondary colour
 
-**Layers**
+**Layers, groups and masks**
 - Unlimited layers: visibility, lock, rename, reorder, duplicate, delete, merge down, clear
+- **Groups**: put a layer in a group, collapse it, hide the whole group, or ungroup again
+- **Masks**: build a mask from the current selection, switch it on and off, or remove it — the mask hides pixels without destroying them
 - Per-layer opacity and live thumbnails
 
 **Colour and background**
