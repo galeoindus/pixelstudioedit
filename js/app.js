@@ -2063,35 +2063,61 @@
     }, format || 'image/png', quality);
   }
 
+  /* Imports an image.
+   * Photo and pixel-art modes resize the document to the image FIRST and then draw
+   * it 1:1 — drawing into a small canvas and upscaling afterwards produced the
+   * blocky, banded photo that users reported. */
   function importImage(file) {
     var url = URL.createObjectURL(file);
     var im = new Image();
     im.onload = function () {
-      var sc = Math.min(S.w / im.width, S.h / im.height);
-      var dw = Math.max(1, Math.round(im.width * sc));
-      var dh = Math.max(1, Math.round(im.height * sc));
-      var l = mkLayer((file.name || 'Image').replace(/\.[^.]+$/, '').slice(0, 18) || 'Image');
-      l.ctx.imageSmoothingEnabled = false;
-      l.ctx.drawImage(im, 0, 0, im.width, im.height,
-        Math.round((S.w - dw) / 2), Math.round((S.h - dh) / 2), dw, dh);
-      S.layers.splice(S.active + 1, 0, l);
-      S.active++;
-      URL.revokeObjectURL(url);
-      pushHistory(); render(); renderLayers(); updateStatus();
-      if (S.importMode === 'photo') {
-        S.importMode = null;
-        var nw = Math.min(2048, im.width), nh = Math.min(2048, im.height);
-        if (nw !== S.w || nh !== S.h) resizeDoc(nw, nh);
+      var mode = S.importMode;
+      S.importMode = null;
+      var name = (file.name || 'Image').replace(/\.[^.]+$/, '').slice(0, 18) || 'Image';
+
+      var layer = mkLayer(name);
+      layer.ctx.imageSmoothingEnabled = false;
+
+      if (mode === 'photo' || mode === 'pixel') {
+        /* fit the photo into a sane memory budget, keeping its aspect ratio */
+        var maxPixels = 4.2e6;
+        var scale = 1;
+        if (im.width * im.height > maxPixels) scale = Math.sqrt(maxPixels / (im.width * im.height));
+        var docW = Math.max(1, Math.min(2048, Math.round(im.width * scale)));
+        var docH = Math.max(1, Math.min(2048, Math.round(im.height * scale)));
+
+        newDoc(docW, docH);
+        layer = S.layers[0];
+        layer.name = name;
+        /* smooth only when the photo had to be downscaled — 1:1 stays untouched */
+        layer.ctx.imageSmoothingEnabled = scale < 1;
+        layer.ctx.imageSmoothingQuality = 'high';
+        layer.ctx.drawImage(im, 0, 0, docW, docH);
+        layer.ctx.imageSmoothingEnabled = false;
+
+        pushHistory(); fitZoom(); render(); renderLayers(); updateStatus();
         openTab('photo');
-        toast('Photo opened — ' + S.w + '×' + S.h);
-      } else if (S.importMode === 'pixel') {
-        S.importMode = null;
-        openTab('photo');
-        setTimeout(function () { pixelize(false); }, 60);
-        toast('Pixel art ready — tune Block and palette in the Photo tab');
+        if (mode === 'pixel') {
+          setTimeout(function () { pixelize(false); }, 60);
+          toast('Pixel art ready — tune Block and palette in the Photo tab');
+        } else {
+          toast('Photo opened at ' + S.w + '×' + S.h);
+        }
       } else {
+        /* no mode chosen: place the image inside the current canvas */
+        var sc = Math.min(S.w / im.width, S.h / im.height);
+        var dw = Math.max(1, Math.round(im.width * sc));
+        var dh = Math.max(1, Math.round(im.height * sc));
+        layer.ctx.imageSmoothingEnabled = sc < 1;
+        layer.ctx.drawImage(im, 0, 0, im.width, im.height,
+          Math.round((S.w - dw) / 2), Math.round((S.h - dh) / 2), dw, dh);
+        layer.ctx.imageSmoothingEnabled = false;
+        S.layers.splice(S.active + 1, 0, layer);
+        S.active++;
+        pushHistory(); render(); renderLayers(); updateStatus();
         toast('Imported — try Photo → Make pixel art');
       }
+      URL.revokeObjectURL(url);
     };
     im.onerror = function () { toast('Could not read that image'); URL.revokeObjectURL(url); };
     im.src = url;
