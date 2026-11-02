@@ -955,3 +955,23 @@ input[type="color"] {
 .style-thumb canvas { display: block; width: 66px; height: 28px; }
 .style-thumb span { font-size: 10.5px; color: var(--muted); }
 .style-thumb:hover span { color: var(--text); }
+
+/* --------------------------------------------------------- groups and masks */
+
+.group-row {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 5px 8px;
+  margin-top: 3px;
+  border-radius: 9px;
+  background: #1a2130;
+  border: 1px solid var(--line);
+}
+.group-row .eye { background: none; border: 0; cursor: pointer; color: var(--muted); padding: 0; font-size: 12px; }
+.group-row .eye.on { color: var(--accent); }
+.group-name { font-size: 11.5px; color: var(--accent-2); cursor: pointer; letter-spacing: 0.2px; }
+.layer.in-group { margin-left: 14px; }
+
+.guide h4 { margin: 12px 0 4px; }
+.guide p { margin: 0; }
