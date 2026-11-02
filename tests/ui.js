@@ -500,6 +500,62 @@ const check = (name, ok, detail) => {
   check('manifest link and PWA files present', pwa.link && filesOnDisk, JSON.stringify({ pwa, filesOnDisk }));
   check('text style thumbnails render', pwa.thumbs >= 3, pwa.thumbs);
 
+  // 13h layer groups and masks
+  await tab('layers');
+  await page.evaluate(() => document.querySelector('#group-add').click());
+  await new Promise(r => setTimeout(r, 200));
+  check('group created', (await page.evaluate(() => window.PS.state.groups.length)) === 1,
+    await page.evaluate(() => window.PS.state.groups.length));
+  check('group header rendered', (await page.evaluate(() => document.querySelectorAll('.group-row').length)) >= 1);
+  await page.evaluate(() => document.querySelector('#group-toggle').click());
+  await new Promise(r => setTimeout(r, 200));
+  check('group collapses', await page.evaluate(() => window.PS.state.groups[0].collapsed === true));
+  await page.evaluate(() => document.querySelector('#group-toggle').click());
+  await new Promise(r => setTimeout(r, 150));
+
+  // mask from selection hides everything outside the selection
+  // fill the active layer completely first, so the numbers are deterministic
+  await page.evaluate(() => {
+    const rows = document.querySelectorAll('.layer');
+    if (rows.length) rows[rows.length - 1].click();
+  });
+  await new Promise(r => setTimeout(r, 150));
+  await page.evaluate(() => document.querySelector('#bg-colour').click());
+  await new Promise(r => setTimeout(r, 250));
+  const filledInk = await ink();
+  check('layer filled for mask test', filledInk > 0, filledInk);
+
+  await page.evaluate(() => { window.PS.state.sel = { x: 8, y: 8, w: 16, h: 16 }; });
+  await page.evaluate(() => document.querySelector('#mask-from-selection').click());
+  await new Promise(r => setTimeout(r, 250));
+  const maskedInk = await ink();
+  check('mask from selection applies', maskedInk > 0 && maskedInk < filledInk, filledInk + ' -> ' + maskedInk);
+
+  await page.evaluate(() => document.querySelector('#mask-toggle').click());
+  await new Promise(r => setTimeout(r, 250));
+  const unmaskedInk = await ink();
+  check('mask can be switched off', unmaskedInk > maskedInk, maskedInk + ' -> ' + unmaskedInk);
+
+  await page.evaluate(() => document.querySelector('#mask-remove').click());
+  await new Promise(r => setTimeout(r, 200));
+  check('mask removed', await page.evaluate(() => !window.PS.state.layers[window.PS.state.active].mask));
+
+  await page.evaluate(() => document.querySelector('#group-del').click());
+  await new Promise(r => setTimeout(r, 200));
+  check('ungroup works', (await page.evaluate(() => window.PS.state.groups.length)) === 0);
+
+  // 13i quick guide
+  await page.evaluate(() => document.querySelector('#btn-menu').click());
+  await new Promise(r => setTimeout(r, 120));
+  await page.evaluate(() => document.querySelector('#m-help').click());
+  await new Promise(r => setTimeout(r, 250));
+  const guide = await page.evaluate(() => {
+    const m = document.querySelector('.overlay .modal');
+    return m ? m.textContent.includes('Start') && m.textContent.includes('Shortcuts') : false;
+  });
+  check('quick guide opens', guide);
+  await page.evaluate(() => { const b = document.querySelector('.overlay [data-ok]'); if (b) b.click(); });
+
   // 14 zoom
   const z0 = await page.evaluate(() => document.querySelector('#zoom-label').textContent);
   await click('#zoom-in');
