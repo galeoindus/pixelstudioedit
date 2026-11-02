@@ -146,7 +146,9 @@
 
       <div class="stage-wrap" id="stage-wrap">
         <div class="stage" id="stage">
+          <canvas id="bg-layer" width="64" height="64"></canvas>
           <canvas id="screen" width="64" height="64"></canvas>
+          <canvas id="overlay" width="64" height="64"></canvas>
         </div>
       </div>
 
@@ -158,6 +160,7 @@
     </section>
 
     <aside class="side" id="side">
+      <div class="sheet-grab" id="sheet-grab" aria-hidden="true"></div>
       <div class="tabs" id="tabs">
         <button class="tab active" data-tab="text">Text</button>
         <button class="tab" data-tab="stickers">Sticker</button>
