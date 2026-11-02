@@ -38,6 +38,8 @@ const check = (name, ok, detail) => {
   await page.evaluate(() => { const b = document.querySelector('.overlay [data-cancel]'); if (b) b.click(); });
   await new Promise(r => setTimeout(r, 200));
   check('start screen dismissed', await page.evaluate(() => document.querySelector('#start').hidden));
+  const templateCount = await page.evaluate(() => document.querySelectorAll('#template-row .template-card').length);
+  check('start screen lists templates', templateCount >= 6, templateCount);
 
   // ---- helpers -------------------------------------------------------
   const click = async sel => {
@@ -311,6 +313,44 @@ const check = (name, ok, detail) => {
   });
   check('objects are part of the document', project.objects >= 1, JSON.stringify(project));
 
+  // 13a3 templates create a sized document with editable text
+  await page.evaluate(() => {
+    const m = document.querySelector('#btn-menu');
+    if (m) m.click();
+  });
+  await new Promise(r => setTimeout(r, 150));
+  await page.evaluate(() => { const t = document.querySelector('#m-templates'); if (t) t.click(); });
+  await new Promise(r => setTimeout(r, 250));
+  const dlgTpl = await page.evaluate(() => document.querySelectorAll('#dlg-templates .template-card').length);
+  check('templates dialog opens', dlgTpl >= 6, dlgTpl);
+  await page.evaluate(() => document.querySelector('#dlg-templates [data-tpl="thumb"]').click());
+  await new Promise(r => setTimeout(r, 500));
+  const tplState = await page.evaluate(() => ({
+    w: window.PS.state.w, h: window.PS.state.h,
+    objects: window.PS.state.objects.length,
+    text: (window.PS.state.objects[0] || {}).text
+  }));
+  check('template builds the document', tplState.w === 1280 && tplState.h === 720, JSON.stringify(tplState));
+  check('template adds editable text', tplState.objects === 2, tplState.objects);
+  check('template text is editable content', tplState.text === 'TITLE HERE', tplState.text);
+  const inkTpl = await ink();
+  check('template renders pixels', inkTpl > 0, inkTpl);
+  await page.evaluate(() => { const b = document.querySelector('.overlay [data-cancel]'); if (b) b.click(); });
+
+  // back to a small canvas for the remaining checks
+  await page.evaluate(() => document.querySelector('#btn-menu').click());
+  await new Promise(r => setTimeout(r, 150));
+  await page.evaluate(() => document.querySelector('#m-new').click());
+  await new Promise(r => setTimeout(r, 250));
+  await page.evaluate(() => {
+    document.querySelector('#dlg-w').value = 64;
+    document.querySelector('#dlg-h').value = 64;
+    document.querySelector('.overlay [data-ok]').click();
+  });
+  await new Promise(r => setTimeout(r, 300));
+  const resetSize = await docSize();
+  check('new document resets to 64', resetSize.w === 64 && resetSize.h === 64, JSON.stringify(resetSize));
+
   // 13b stickers
   await tab('stickers');
   const stickers = await page.evaluate(() => document.querySelectorAll('#sticker-grid .sticker').length);
@@ -325,7 +365,8 @@ const check = (name, ok, detail) => {
   await page.evaluate(() => document.querySelectorAll('#palette button')[0].click());
   await click('#bg-colour');
   const bgInk = await ink();
-  check('background fill covers the layer', bgInk === 64 * 64, bgInk);
+  const canvasPixels = await page.evaluate(() => window.PS.state.w * window.PS.state.h);
+  check('background fill covers the layer', bgInk === canvasPixels, bgInk + '/' + canvasPixels);
   await tab('effects');
   await setRange('bg-tolerance', 20);
   await click('#bg-remove-colour');
