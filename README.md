@@ -12,11 +12,14 @@ Most pixel editors are desktop-only or locked behind a subscription, and most "t
 
 ## Interface
 
+The app opens on a **start screen** with the three jobs it is built for — Create a design, Edit a photo, Make pixel art — so a first-time visitor knows where to begin. All three land in the same editor, on the same artboard, with the same layers, history and export.
+
 Everything is organised around one canvas:
 
-- **Left rail** — the ten tools, each with its keyboard letter. The colour chip at the bottom swaps primary/secondary.
+- **Left rail** — eleven named tools (Pen, Erase, Fill, Pick, Line, Rect, Oval, Select, Crop, Text, Pan), each with its keyboard shortcut. The colour chip at the bottom swaps primary/secondary.
 - **Quick bar** — brush size, opacity, mirror X/Y and the pixel grid, always within reach while drawing.
 - **Right panel** (bottom sheet on phones) — seven tabs: **Text, Sticker, Photo, Colour, Layers, FX, 3D**. One panel at a time, so nothing is buried in a collapsed accordion.
+- **Save status** in the top bar tells you whether the project is saved, unsaved or autosaved.
 - **Canvas chip** in the top bar — size, resize, flip and rotate. **New document** offers banner and social templates (Instagram 1080, Story 1080×1920, YouTube 1280×720, Banner 1500×500, Meme 800×600, Poster 1080×1350).
 - **Full-screen canvas** — the ⛶ button hides every panel for distraction-free drawing (and asks the browser for real full screen).
 - **File menu** — New, Open, Save, Import image, Export PNG, Canvas, Restore autosave, Shortcuts.
@@ -65,7 +68,7 @@ Everything is organised around one canvas:
 - Turn, tilt (perspective projection) and extrude the active layer
 
 **Files**
-- Export PNG at 1×–20× with nearest-neighbour upscaling
+- Export **PNG, JPEG or WebP** at 1×–20× with nearest-neighbour upscaling and a quality slider
 - Save/open projects as `.json` (layers preserved), import images onto a new layer
 - Autosave to local storage, restorable at any time
 
@@ -92,6 +95,7 @@ python3 -m http.server 8000
 | `L` | Line | `H` | Pan |
 | `R` | Rectangle | `X` | Swap colours |
 | `O` | Ellipse | `[` `]` | Brush size |
+| `C` | Crop | `Esc` | Deselect |
 | `+` `-` | Zoom | `0` | Fit to screen |
 | `Ctrl+Z` | Undo | `Ctrl+Shift+Z` | Redo |
 | `Ctrl+A` | Select all | `Delete` | Clear selection |
