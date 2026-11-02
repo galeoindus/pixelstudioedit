@@ -778,3 +778,166 @@ input[type="color"] {
 .template-card:hover { transform: translateY(-2px); border-color: var(--accent); }
 .template-card b { font-size: 13px; color: #fff; text-shadow: 0 1px 6px rgba(0, 0, 0, 0.6); }
 .template-card small { font-size: 10.5px; color: rgba(255, 255, 255, 0.72); }
+
+/* ==========================================================================
+   Design system v2 — glass surfaces + neumorphic controls (blueprint §3)
+   ========================================================================== */
+
+:root {
+  --glass-surface: rgba(22, 26, 34, 0.72);
+  --glass-surface-strong: rgba(26, 31, 41, 0.86);
+  --glass-blur: blur(18px) saturate(160%);
+  --glass-border: 1px solid rgba(255, 255, 255, 0.09);
+  --glass-shadow: 0 10px 34px rgba(0, 0, 0, 0.42);
+  --neu-dark: #171b23;
+  --neu-light-shadow: 0 -1px 0 rgba(255, 255, 255, 0.045);
+  --neu-dark-shadow: 0 2px 6px rgba(0, 0, 0, 0.5);
+  --easing: cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+/* stacked canvases: one artboard, three functional layers */
+.stage { position: relative; }
+.stage > canvas {
+  position: absolute;
+  inset: 0;
+  display: block;
+  image-rendering: pixelated;
+  image-rendering: crisp-edges;
+}
+#bg-layer { position: relative; }
+#screen, #overlay { position: absolute; }
+#overlay { pointer-events: none; }
+
+/* glass chrome */
+.topbar,
+.rail,
+.side,
+.quickbar,
+.statusbar {
+  background: var(--glass-surface);
+  -webkit-backdrop-filter: var(--glass-blur);
+  backdrop-filter: var(--glass-blur);
+}
+.topbar { border-bottom: var(--glass-border); box-shadow: var(--glass-shadow); }
+.rail { border-right: var(--glass-border); }
+.side { border-left: var(--glass-border); box-shadow: var(--glass-shadow); }
+
+/* neumorphic controls */
+.btn,
+.toggle,
+.q-toggle,
+.tab,
+.tool,
+.icon-btn,
+.chip {
+  transition: transform 0.12s var(--easing), background 0.12s var(--easing),
+    box-shadow 0.12s var(--easing), border-color 0.12s var(--easing);
+}
+.btn,
+.toggle {
+  background: linear-gradient(180deg, #202632, var(--neu-dark));
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: var(--neu-light-shadow), var(--neu-dark-shadow);
+}
+.btn:active,
+.toggle:active { box-shadow: inset 0 2px 6px rgba(0, 0, 0, 0.55); transform: translateY(1px); }
+.btn.primary {
+  background: linear-gradient(180deg, #35c496, #1d7f63);
+  border-color: rgba(255, 255, 255, 0.16);
+  box-shadow: 0 6px 18px rgba(29, 127, 99, 0.35), inset 0 1px 0 rgba(255, 255, 255, 0.25);
+  color: #04120d;
+  font-weight: 700;
+}
+.btn.primary:hover { background: linear-gradient(180deg, #40d7a5, #23906f); }
+
+.tool { border-radius: 14px; }
+.tool.active {
+  background: linear-gradient(180deg, #2a4a42, #1b322c);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.12), 0 4px 14px rgba(0, 0, 0, 0.45);
+}
+.chip { background: var(--glass-surface-strong); box-shadow: var(--neu-dark-shadow); }
+
+/* artboard sits on a soft pasteboard */
+.stage-wrap {
+  background-color: #0a0d12;
+  background-image:
+    radial-gradient(circle at 50% 0%, rgba(52, 211, 153, 0.06), transparent 55%),
+    radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.04) 1px, transparent 0);
+  background-size: 100% 100%, 26px 26px;
+}
+.stage {
+  box-shadow:
+    0 24px 70px rgba(0, 0, 0, 0.7),
+    0 0 0 1px rgba(255, 255, 255, 0.09),
+    0 0 0 8px rgba(255, 255, 255, 0.015);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+/* sheet grab handle */
+.sheet-grab { display: none; }
+
+/* ------------------------------------------------------------ tablet / mobile */
+
+@media (max-width: 1023px) {
+  .tabs { padding: 6px 8px 0; }
+  .tab { padding: 9px 8px; font-size: 11.5px; }
+}
+
+@media (max-width: 980px) {
+  .side {
+    max-height: 58dvh;
+    background: var(--glass-surface-strong);
+    transform: translateY(calc(100% - 62px));
+  }
+  .side.open { transform: translateY(0); }
+
+  .sheet-grab {
+    display: block;
+    width: 46px;
+    height: 5px;
+    border-radius: 99px;
+    background: rgba(255, 255, 255, 0.28);
+    margin: 8px auto 2px;
+    cursor: pointer;
+  }
+
+  .stage-wrap { padding: 10px 8px; }
+  .quickbar { padding: 6px 8px; gap: 6px; }
+  .statusbar { display: none; }
+  .rail { padding: 8px 0; gap: 2px; }
+  .tool { width: 44px; height: 46px; }
+  .tool span { font-size: 8px; }
+}
+
+/* canvases fill the artboard box, which the camera sizes */
+.stage > canvas { width: 100%; height: 100%; }
+
+/* ---------------------------------------------------------------------------
+   Mobile: the sheet takes part in the layout instead of covering the artboard
+   --------------------------------------------------------------------------- */
+@media (max-width: 980px) {
+  .workspace {
+    grid-template-columns: var(--rail-w) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr) auto;
+  }
+  .rail { grid-column: 1; grid-row: 1; }
+  .canvas-area { grid-column: 2; grid-row: 1; min-height: 0; }
+
+  .side {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    position: static;
+    transform: none;
+    height: 62px;
+    max-height: 58dvh;
+    border-radius: 16px 16px 0 0;
+    overflow: hidden;
+    box-shadow: 0 -12px 30px rgba(0, 0, 0, 0.5);
+    transition: height 0.24s var(--easing, ease);
+  }
+  .side.open { height: min(58dvh, 520px); transform: none; }
+  .sheet-body { min-height: 0; }
+  .side:not(.open) .sheet-body { display: none; }
+  .sheet-grab { display: block; }
+}
