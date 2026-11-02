@@ -274,6 +274,19 @@
 
         <!-- ---------------------------------------------------------- LAYERS -->
         <section class="pane" data-pane="layers">
+          <h4>Objects <span class="hint-inline">editable</span></h4>
+          <div class="objects" id="objects"></div>
+          <div class="row tight">
+            <button class="btn" data-add-shape="rect">+ Rect</button>
+            <button class="btn" data-add-shape="ellipse">+ Oval</button>
+            <button class="btn" data-add-shape="line">+ Line</button>
+          </div>
+          <div class="row tight">
+            <button class="btn" id="obj-flatten">Flatten</button>
+            <button class="btn" id="obj-delete">Delete object</button>
+          </div>
+          <p class="hint">Text and shapes stay editable: tap one to select, drag on the canvas to move it, then change font, colour or style in the Text tab.</p>
+          <h4>Layers</h4>
           <div class="layers" id="layers"></div>
           <div class="row tight">
             <button class="btn" id="layer-add">+ Add</button>
