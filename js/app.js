@@ -150,7 +150,23 @@
 
   /* ----------------------------------------------------------------- history */
 
-  function snapshot() {
+  /* Compares two pixel buffers quickly so unchanged layers can be shared. */
+  function sameData(a, b) {
+    if (!a || !b) return false;
+    if (a.length !== b.length) return false;
+    for (var i = 0; i < a.length; i += 4) {
+      if (a[i] !== b[i] || a[i + 1] !== b[i + 1] || a[i + 2] !== b[i + 2] || a[i + 3] !== b[i + 3]) return false;
+    }
+    return true;
+  }
+
+  /* Snapshot with copy-on-write: a layer whose pixels did not change keeps the
+     previous buffer by reference, so history only stores what actually changed. */
+  function snapshot(previous) {
+    var prevLayers = previous && previous.layers ? previous.layers : [];
+    var prevByName = {};
+    prevLayers.forEach(function (pl) { prevByName[pl.name + ':' + pl.visible] = pl; });
+
     return {
       w: S.w, h: S.h, active: S.active,
       objects: JSON.parse(JSON.stringify(S.objects.map(function (o) {
@@ -159,9 +175,15 @@
       }))),
       selectedObj: S.selectedObj,
       layers: S.layers.map(function (l) {
+        var data = l.ctx.getImageData(0, 0, S.w, S.h);
+        var reuse = null;
+        prevLayers.forEach(function (pl) {
+          if (reuse) return;
+          if (pl.name === l.name && pl.data && sameData(pl.data.data, data.data)) reuse = pl.data;
+        });
         return {
           name: l.name, visible: l.visible, opacity: l.opacity, locked: l.locked,
-          data: l.ctx.getImageData(0, 0, S.w, S.h)
+          data: reuse || data
         };
       })
     };
@@ -172,7 +194,8 @@
     S.layers = snap.layers.map(function (o) {
       var l = mkLayer(o.name);
       l.visible = o.visible; l.opacity = o.opacity; l.locked = o.locked;
-      l.ctx.putImageData(o.data, 0, 0);
+      /* copy so later painting never mutates a buffer the history still holds */
+      l.ctx.putImageData(new ImageData(new Uint8ClampedArray(o.data.data), o.data.width, o.data.height), 0, 0);
       return l;
     });
     S.active = Math.min(snap.active, S.layers.length - 1);
@@ -190,7 +213,7 @@
   function pushHistory() {
     setSaveStatus('Unsaved');
     S.history = S.history.slice(0, S.hpos + 1);
-    S.history.push(snapshot());
+    S.history.push(snapshot(S.history[S.history.length - 1]));
     if (S.history.length > 24) S.history.shift();
     S.hpos = S.history.length - 1;
     updateHistoryButtons();
@@ -1455,6 +1478,80 @@
     toast('Background removed');
   }
 
+  /* ------------------------------------------------------------------ AI cut-out
+   * Optional, fully client-side segmentation (transformers.js + WebGPU/WASM).
+   * If the model cannot be fetched, the colour-based remover takes over so the
+   * button always does something useful.
+   */
+  var aiPipe = null;
+
+  function aiStatus(text) {
+    var note = byId('bg-ai-note');
+    if (note) note.textContent = text;
+  }
+
+  async function aiRemoveBackground() {
+    var got = readLayer();
+    if (!got) return;
+    var btn = byId('bg-ai');
+    if (btn) { btn.disabled = true; btn.textContent = 'Loading model…'; }
+    try {
+      if (!aiPipe) {
+        aiStatus('Downloading the segmentation model (one time only)…');
+        var mod = await import('https://cdn.jsdelivr.net/npm/@huggingface/transformers@3.0.0');
+        var pipeline = mod.pipeline;
+        var device = (navigator.gpu ? 'webgpu' : 'wasm');
+        aiPipe = await pipeline('image-segmentation', 'briaai/RMBG-1.4', { device: device });
+      }
+      aiStatus('Removing the background…');
+      var src = document.createElement('canvas');
+      src.width = S.w; src.height = S.h;
+      src.getContext('2d').putImageData(got.img, 0, 0);
+      var out = await aiPipe(src.toDataURL('image/png'));
+      var maskItem = Array.isArray(out) ? out[0] : out;
+      var maskCanvas = null;
+      if (maskItem && maskItem.mask) {
+        maskCanvas = maskItem.mask.toCanvas ? maskItem.mask.toCanvas() : null;
+        if (!maskCanvas && maskItem.mask.data) {
+          var mw = maskItem.mask.width, mh = maskItem.mask.height;
+          maskCanvas = document.createElement('canvas');
+          maskCanvas.width = mw; maskCanvas.height = mh;
+          var mctx = maskCanvas.getContext('2d');
+          var id = mctx.createImageData(mw, mh);
+          for (var i = 0; i < mw * mh; i++) {
+            var v = maskItem.mask.data[i];
+            id.data[i * 4] = 255; id.data[i * 4 + 1] = 255; id.data[i * 4 + 2] = 255;
+            id.data[i * 4 + 3] = v;
+          }
+          mctx.putImageData(id, 0, 0);
+        }
+      }
+      if (!maskCanvas) throw new Error('no mask');
+      var scaled = document.createElement('canvas');
+      scaled.width = S.w; scaled.height = S.h;
+      scaled.getContext('2d').drawImage(maskCanvas, 0, 0, S.w, S.h);
+
+      var l = got.layer;
+      var cut = document.createElement('canvas');
+      cut.width = S.w; cut.height = S.h;
+      var cc = cut.getContext('2d');
+      cc.putImageData(got.img, 0, 0);
+      cc.globalCompositeOperation = 'destination-in';
+      cc.drawImage(scaled, 0, 0);
+      l.ctx.clearRect(0, 0, S.w, S.h);
+      l.ctx.drawImage(cut, 0, 0);
+      pushHistory(); render(); renderLayers();
+      aiStatus('AI cut-out applied. Model cached for this session.');
+      toast('AI background removed');
+    } catch (err) {
+      aiStatus('AI model unavailable here — used the colour-based remover instead.');
+      toast('AI model could not load; using colour-based removal');
+      autoRemoveBg();
+    } finally {
+      if (btn) { btn.disabled = false; btn.textContent = 'AI remove background (beta)'; }
+    }
+  }
+
   function extractPalette() {
     var got = readLayer();
     if (!got) return;
@@ -1962,6 +2059,7 @@
     });
     on('photo-crop', 'click', cropToSelection);
     on('bg-auto', 'click', autoRemoveBg);
+    on('bg-ai', 'click', function () { aiRemoveBackground(); });
     on('bg-white2', 'click', function () { removeBackground(true); });
     on('photo-palette', 'click', extractPalette);
 
