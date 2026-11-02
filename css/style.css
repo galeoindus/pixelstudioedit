@@ -941,3 +941,17 @@ input[type="color"] {
   .side:not(.open) .sheet-body { display: none; }
   .sheet-grab { display: block; }
 }
+
+/* -------------------------------------------------- text style thumbnails */
+
+.style-thumb {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 6px 8px;
+  min-width: 74px;
+}
+.style-thumb canvas { display: block; width: 66px; height: 28px; }
+.style-thumb span { font-size: 10.5px; color: var(--muted); }
+.style-thumb:hover span { color: var(--text); }
