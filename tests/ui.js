@@ -176,7 +176,12 @@ const check = (name, ok, detail) => {
   await tab('effects');
   const before = await pixel(12, 5);
   await click('[data-fx="invert"]');
-  const after = await pixel(12, 5);
+  let after = before;
+  for (let i = 0; i < 25; i++) {
+    after = await pixel(12, 5);
+    if (after.join() !== before.join()) break;
+    await new Promise(r => setTimeout(r, 80));
+  }
   check('invert filter', before.join() !== after.join(), before + ' -> ' + after);
 
   // 8 live adjust
