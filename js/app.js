@@ -44,7 +44,8 @@
     tool: 'pencil',
     color: '#1b1b1f', color2: '#ffffff',
     brush: 1, opacity: 1, tolerance: 0,
-    symX: false, symY: false, showGrid: true, fillShapes: false,
+    symX: false, symY: false, showGrid: false, showChecker: true, crisp: false,
+    fillShapes: false, strokeActive: false,
     sel: null, floating: null, preview: null, drag: null, panning: null,
     history: [], hpos: -1,
     objects: [], selectedObj: null, objSeq: 1,
@@ -71,6 +72,8 @@
   var compCtx = compCv.getContext('2d');
   var prevCv = document.createElement('canvas');
   var prevCtx = prevCv.getContext('2d');
+  var strokeCv = document.createElement('canvas');
+  var strokeCtx = strokeCv.getContext('2d');
   var checkerPattern = null;
   var toastTimer = null;
   var autosaveTimer = null;
@@ -309,11 +312,20 @@
     if (el) { el.textContent = text; el.classList.toggle('dirty', text !== 'Saved'); }
   }
 
+  /* History depth adapts to the document size: 24 snapshots of a 64×64 sprite is
+     a few megabytes, but 24 snapshots of a 1024×1024 poster is 100 MB and will
+     crash a phone. Keep roughly 64 MB of undo data. */
+  function historyDepth() {
+    var per = Math.max(1, S.w * S.h * 4) * Math.max(1, S.layers.length);
+    return Math.max(4, Math.min(24, Math.floor(64e6 / per)));
+  }
+
   function pushHistory() {
     setSaveStatus('Unsaved');
     S.history = S.history.slice(0, S.hpos + 1);
     S.history.push(snapshot(S.history[S.history.length - 1]));
-    if (S.history.length > 24) S.history.shift();
+    var depth = historyDepth();
+    while (S.history.length > depth) S.history.shift();
     S.hpos = S.history.length - 1;
     updateHistoryButtons();
     queueAutosave();
@@ -341,7 +353,10 @@
   /* --------------------------------------------------------------- rendering */
 
   function effZoom() {
-    var max = Math.sqrt(MAX_BACKING / Math.max(1, S.w * S.h));
+    /* the cap must account for the device-pixel-ratio backing store, otherwise a
+       retina screen can allocate a canvas far past the memory budget */
+    var dpr = Math.min(3, Math.max(1, window.devicePixelRatio || 1));
+    var max = Math.sqrt(MAX_BACKING / Math.max(1, S.w * S.h)) / dpr;
     /* fractional scales are allowed so a large artboard can always fit the screen */
     return Math.max(0.05, Math.min(S.zoom, Math.max(0.05, max)));
   }
@@ -380,10 +395,12 @@
   /* Transparency checkerboard: small, low-contrast squares in screen space so it
      never competes with the artwork. */
   function drawChecker(ctx, W, H) {
-    var cell = 8;
-    ctx.fillStyle = '#252b35';
+    var cell = 16;
+    /* the conventional light-grey transparency grid, so dark ink stays readable
+       and the artboard reads as "paper" rather than another dark panel */
+    ctx.fillStyle = '#d6d9df';
     ctx.fillRect(0, 0, W, H);
-    ctx.fillStyle = '#2c333f';
+    ctx.fillStyle = '#cbcfd7';
     for (var y = 0; y < H; y += cell) {
       for (var x = ((y / cell) % 2) * cell; x < W; x += cell * 2) {
         ctx.fillRect(x, y, Math.min(cell, W - x), Math.min(cell, H - y));
@@ -422,6 +439,7 @@
 
   function render() {
     var z = effZoom();
+    if (stage) stage.classList.toggle('crisp', !!S.crisp);
     var W = Math.max(1, Math.round(S.w * z)), H = Math.max(1, Math.round(S.h * z));
     /* Device pixel ratio: the backing store is denser than the CSS box, so text and
        edges stay sharp on retina screens without changing document coordinates. */
@@ -441,9 +459,10 @@
     bgCtx.imageSmoothingEnabled = false;
     bgCtx.clearRect(0, 0, W, H);
     if (S.showChecker) drawChecker(bgCtx, W, H);
-    if (S.showGrid && z >= 6 && z <= 20) {
+    else { bgCtx.fillStyle = '#ffffff'; bgCtx.fillRect(0, 0, W, H); }
+    if (S.showGrid && z >= 8) {
       bgCtx.save();
-      bgCtx.strokeStyle = 'rgba(255,255,255,0.055)';
+      bgCtx.strokeStyle = 'rgba(20,24,32,0.16)';
       bgCtx.lineWidth = 1;
       bgCtx.beginPath();
       for (var gx = 1; gx < S.w; gx++) { bgCtx.moveTo(gx * z + 0.5, 0); bgCtx.lineTo(gx * z + 0.5, H); }
@@ -456,9 +475,16 @@
     screenCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     screenCtx.clearRect(0, 0, W, H);
     /* zoomed out → smooth preview; 100% or more → crisp pixels */
-    screenCtx.imageSmoothingEnabled = z < 1;
+    screenCtx.imageSmoothingEnabled = !S.crisp || z < 1;
     screenCtx.imageSmoothingQuality = 'high';
     screenCtx.drawImage(composite(), 0, 0, W, H);
+
+    if (S.strokeActive && strokeCv.width === S.w && strokeCv.height === S.h) {
+      screenCtx.save();
+      screenCtx.globalAlpha = S.opacity;
+      screenCtx.drawImage(strokeCv, 0, 0, W, H);
+      screenCtx.restore();
+    }
 
     if (S.floating) {
       screenCtx.drawImage(S.floating.canvas,
@@ -537,19 +563,20 @@
   }
 
   function fitZoom() {
-    var pad = 24;
+    var pad = 32;
     var vw = Math.max(80, stageWrap.clientWidth - pad);
     var vh = Math.max(80, stageWrap.clientHeight - pad);
     var z = Math.min(vw / S.w, vh / S.h);
-    /* keep pixels crisp when we can, but never overflow the viewport */
-    if (z >= 1) z = Math.floor(z);
-    S.zoom = Math.max(0.05, Math.min(16, z));
+    /* pixel mode snaps to whole steps so every document pixel is the same size;
+       smooth mode may use any scale so a big artboard always fits exactly */
+    if (S.crisp && z >= 1) z = Math.floor(z);
+    S.zoom = Math.max(0.05, Math.min(32, z));
     render();
   }
 
   function setZoom(z) {
     S.zoom = Math.max(0.05, Math.min(64, z));
-    if (S.zoom >= 1) S.zoom = Math.round(S.zoom);
+    if (S.crisp && S.zoom >= 1) S.zoom = Math.round(S.zoom);
     render();
   }
 
@@ -785,6 +812,14 @@
     };
   }
 
+  /* Fractional document coordinates — smooth strokes need sub-pixel precision. */
+  function pointFromEvent(e) {
+    var r = screen.getBoundingClientRect();
+    var x = (e.clientX - r.left) / r.width * S.w;
+    var y = (e.clientY - r.top) / r.height * S.h;
+    return { x: x, y: y, inside: x >= 0 && y >= 0 && x < S.w && y < S.h };
+  }
+
   function stampAt(layer, x, y, colorHex, erase) {
     var ctx = layer.ctx;
     var size = Math.max(1, S.brush);
@@ -814,6 +849,60 @@
       if (e2 >= dy) { err += dy; x0 += sx; }
       if (e2 <= dx) { err += dx; y0 += sy; }
     }
+  }
+
+  /* Live pencil stroke buffer: the stroke is painted at full opacity into its own
+     canvas and composited once, so overlapping segments never darken each other
+     and the opacity slider behaves the way people expect. */
+  function beginStrokeBuffer() {
+    if (strokeCv.width !== S.w || strokeCv.height !== S.h) {
+      strokeCv.width = S.w; strokeCv.height = S.h;
+    }
+    strokeCtx.setTransform(1, 0, 0, 1, 0, 0);
+    strokeCtx.clearRect(0, 0, S.w, S.h);
+    S.strokeActive = true;
+  }
+
+  function endStrokeBuffer() {
+    if (!S.strokeActive) return;
+    var l = activeLayer();
+    if (l) {
+      l.ctx.save();
+      l.ctx.globalAlpha = S.opacity;
+      l.ctx.drawImage(strokeCv, 0, 0);
+      l.ctx.restore();
+    }
+    strokeCtx.clearRect(0, 0, S.w, S.h);
+    S.strokeActive = false;
+  }
+
+  /* Anti-aliased segment with round caps, mirrored on request. This is what keeps
+     freehand lines smooth instead of stepping through document pixels. */
+  function paintSegment(target, a, b, colorHex, erase) {
+    target.save();
+    target.globalCompositeOperation = erase ? 'destination-out' : 'source-over';
+    target.globalAlpha = 1;
+    target.strokeStyle = colorHex;
+    target.fillStyle = colorHex;
+    target.lineWidth = Math.max(1, S.brush);
+    target.lineCap = 'round';
+    target.lineJoin = 'round';
+    var combos = [[1, 1]];
+    if (S.symX) combos.push([-1, 1]);
+    if (S.symY) combos.push([1, -1]);
+    if (S.symX && S.symY) combos.push([-1, -1]);
+    for (var i = 0; i < combos.length; i++) {
+      var c = combos[i];
+      target.save();
+      target.translate(c[0] < 0 ? S.w : 0, c[1] < 0 ? S.h : 0);
+      target.scale(c[0], c[1]);
+      target.beginPath();
+      target.moveTo(a.x, a.y);
+      target.lineTo(b.x + 0.0001, b.y + 0.0001);
+      target.stroke();
+      target.restore();
+    }
+    target.restore();
   }
 
   function bucketFill(p) {
@@ -851,8 +940,16 @@
     if (S.tool === 'pencil' || S.tool === 'eraser') {
       if (!guardLayer()) return;
       var erase = S.tool === 'eraser';
-      S.drag = { type: 'draw', last: p, color: color, erase: erase };
-      stampAt(l, p.x, p.y, color, erase);
+      var fp = pointFromEvent(e);
+      S.drag = { type: 'draw', last: p, lastPt: fp, color: color, erase: erase };
+      if (S.crisp) {
+        stampAt(l, p.x, p.y, color, erase);
+      } else if (erase) {
+        paintSegment(l.ctx, fp, fp, color, true);
+      } else {
+        beginStrokeBuffer();
+        paintSegment(strokeCtx, fp, fp, color, false);
+      }
       render();
       if (screen.setPointerCapture) { try { screen.setPointerCapture(e.pointerId); } catch (err) {} }
     } else if (S.tool === 'bucket') {
@@ -868,7 +965,7 @@
       var selNow = selectedObject();
       if (selNow && selNow.visible) {
         var hh = handlesFor(selNow);
-        var tolD = 12 / Math.max(0.2, effZoom());
+        var tolD = handleTolerance(objectBounds(selNow));
         var grabbed = null;
         Object.keys(hh).forEach(function (k) {
           if (grabbed) return;
@@ -916,6 +1013,21 @@
     }
   }
 
+  /* How close (in document px) a click must be to count as grabbing a handle.
+     A fixed 12-screen-px radius turns into hundreds of document pixels when a big
+     artboard is zoomed out, which made small objects impossible to drag — every
+     click near a corner was swallowed by the handle. Cap it against the object. */
+  function handleTolerance(b) {
+    var z = Math.max(0.2, effZoom());
+    /* If the whole object is barely bigger than the handles on screen, the handles
+       would cover it completely and it could never be dragged. Skip them. */
+    var minScreen = Math.min(Math.abs(b.w) || 1, Math.abs(b.h) || 1) * z;
+    if (minScreen < 28) return 0;
+    var screenPx = 12 / z;
+    var cap = 0.3 * Math.min(Math.abs(b.w) || 1, Math.abs(b.h) || 1);
+    return Math.max(0.5, Math.min(screenPx, cap));
+  }
+
   /* Topmost object whose bounds contain the point. */
   function objectAt(p) {
     for (var i = S.objects.length - 1; i >= 0; i--) {
@@ -954,9 +1066,17 @@
     if (S.drag.type === 'draw') {
       var l = activeLayer();
       if (!l) return;
-      if (!p.inside) { S.drag.last = p; return; }
-      strokeTo(l, S.drag.last.x, S.drag.last.y, p.x, p.y, S.drag.color, S.drag.erase);
-      S.drag.last = p;
+      var fp = pointFromEvent(e);
+      if (S.crisp) {
+        if (!p.inside) { S.drag.last = p; return; }
+        strokeTo(l, S.drag.last.x, S.drag.last.y, p.x, p.y, S.drag.color, S.drag.erase);
+        S.drag.last = p;
+      } else {
+        var from = S.drag.lastPt || fp;
+        paintSegment(S.drag.erase ? l.ctx : strokeCtx, from, fp, S.drag.color, S.drag.erase);
+        S.drag.lastPt = fp;
+        S.drag.last = p;
+      }
       render();
     } else if (S.drag.type === 'shape') {
       S.preview.x1 = p.x; S.preview.y1 = p.y;
@@ -1013,7 +1133,8 @@
     S.drag = null;
 
     if (d.type === 'draw') {
-      pushHistory(); renderLayers();
+      endStrokeBuffer();
+      pushHistory(); render(); renderLayers();
     } else if (d.type === 'shape') {
       var l = guardLayer();
       if (l && S.preview) { drawShape(l.ctx, S.preview); pushHistory(); }
@@ -1735,22 +1856,6 @@
     markFontAvailability();
   }
 
-  /* Dims any font the browser cannot actually render. */
-  function markFontAvailability() {
-    if (!document.fonts || !document.fonts.check) return;
-    var missing = 0;
-    $$('#font-list .font-item').forEach(function (el, i) {
-      var f = FONTS[i];
-      if (!f) return;
-      var ok = true;
-      try { ok = document.fonts.check('16px ' + f.css.split(',')[0].trim()); } catch (err) { ok = true; }
-      el.classList.toggle('unavailable', !ok);
-      if (!ok) missing++;
-    });
-    var note = byId('font-note');
-    if (note) note.textContent = missing ? missing + ' fonts need internet' : '';
-  }
-
   function placeSticker(atCentre) {
     var l = guardLayer();
     if (!l) return;
@@ -1776,11 +1881,12 @@
     S.textAnchor = { x: p.x, y: p.y };
     var z = effZoom();
     var rect = screen.getBoundingClientRect();
-    var wrap = byId('stage-wrap').getBoundingClientRect();
-    var left = rect.left - wrap.left + p.x * z;
-    var top = rect.top - wrap.top + p.y * z;
-    ov.style.left = Math.max(4, Math.min(wrap.width - 260, left)) + 'px';
-    ov.style.top = Math.max(4, Math.min(wrap.height - 48, top)) + 'px';
+    /* the overlay is positioned inside .canvas-area, not the scrolling stage-wrap */
+    var host = byId('canvas-area').getBoundingClientRect();
+    var left = rect.left - host.left + p.x * z;
+    var top = rect.top - host.top + p.y * z + z * 1.5;
+    ov.style.left = Math.max(8, Math.min(host.width - 300, left)) + 'px';
+    ov.style.top = Math.max(8, Math.min(host.height - 56, top)) + 'px';
     ov.hidden = false;
     var input = byId('text-overlay-input');
     input.value = byId('text-content').value || '';
@@ -1974,8 +2080,18 @@
 
   /* ------------------------------------------------------------------ file IO */
 
+  /* A 1px brush is right on a 64×64 sprite and useless on a 1080px poster. */
+  function defaultBrushFor(w, h) {
+    return Math.max(1, Math.round(Math.min(w, h) / 160));
+  }
+
   function newDoc(w, h) {
     S.w = w; S.h = h;
+    S.brush = defaultBrushFor(w, h);
+    if (byId('q-brush')) {
+      byId('q-brush').value = S.brush;
+      byId('q-brush-val').textContent = S.brush;
+    }
     S.layers = [mkLayer('Layer 1')];
     S.active = 0;
     S.objects = []; S.selectedObj = null;
@@ -2096,6 +2212,10 @@
         layer.ctx.imageSmoothingQuality = 'high';
         layer.ctx.drawImage(im, 0, 0, docW, docH);
         layer.ctx.imageSmoothingEnabled = false;
+
+        /* pixel art is viewed crisp; a photo is edited smooth */
+        S.crisp = (mode === 'pixel');
+        byId('q-crisp').classList.toggle('on', S.crisp);
 
         pushHistory(); fitZoom(); render(); renderLayers(); updateStatus();
         openTab('photo');
@@ -2288,14 +2408,22 @@
     on('q-mirror-x', 'click', function () { S.symX = !S.symX; this.classList.toggle('on', S.symX); });
     on('q-mirror-y', 'click', function () { S.symY = !S.symY; this.classList.toggle('on', S.symY); });
     on('q-grid', 'click', function () { S.showGrid = !S.showGrid; this.classList.toggle('on', S.showGrid); render(); });
+    on('q-crisp', 'click', function () {
+      S.crisp = !S.crisp;
+      this.classList.toggle('on', S.crisp);
+      if (S.crisp) { S.showGrid = true; byId('q-grid').classList.add('on'); }
+      render();
+      toast(S.crisp ? 'Pixel-art mode — crisp pixels' : 'Smooth mode — for photos and design');
+    });
     on('q-checker', 'click', function () { S.showChecker = !S.showChecker; this.classList.toggle('on', S.showChecker); render(); });
-    on('zoom-in', 'click', function () { setZoom(effZoom() < 1 ? effZoom() * 1.5 : effZoom() + 1); });
-    on('zoom-out', 'click', function () { setZoom(effZoom() <= 1 ? effZoom() / 1.5 : effZoom() - 1); });
+    on('zoom-in', 'click', function () { setZoom(S.crisp ? effZoom() + 1 : effZoom() * 1.25); });
+    on('zoom-out', 'click', function () { setZoom(S.crisp ? effZoom() - 1 : effZoom() / 1.25); });
     on('zoom-fit', 'click', fitZoom);
     stageWrap.addEventListener('wheel', function (e) {
-      if (!e.ctrlKey && !e.metaKey && Math.abs(e.deltaY) < 4) return;
+      /* Ctrl/⌘ + wheel zooms; a plain wheel scrolls the pasteboard */
+      if (!e.ctrlKey && !e.metaKey) return;
       e.preventDefault();
-      setZoom(effZoom() + (e.deltaY < 0 ? 1 : -1));
+      setZoom(S.crisp ? effZoom() + (e.deltaY < 0 ? 1 : -1) : effZoom() * (e.deltaY < 0 ? 1.2 : 1 / 1.2));
     }, { passive: false });
 
     // colour
@@ -2419,8 +2547,8 @@
       var st = byId('start');
       if (st) st.hidden = true;
     }
-    on('start-design', 'click', function () { hideStart(); newDocDialog(); });
-    on('start-photo', 'click', function () { hideStart(); S.importMode = 'photo'; byId('file-import').click(); });
+    on('start-design', 'click', function () { hideStart(); S.crisp = false; byId('q-crisp').classList.remove('on'); newDocDialog(); });
+    on('start-photo', 'click', function () { hideStart(); S.crisp = false; byId('q-crisp').classList.remove('on'); S.importMode = 'photo'; byId('file-import').click(); });
     on('start-pixel', 'click', function () { hideStart(); S.importMode = 'pixel'; byId('file-import').click(); });
     on('start-open', 'click', function () { hideStart(); byId('file-open').click(); });
     on('start-skip', 'click', function () {
@@ -2721,9 +2849,11 @@
   ];
 
   function newDocDialog() {
+    /* a fresh design is a design-sized canvas, not a 64×64 sprite */
+    var dw = Math.max(1080, S.w), dh = Math.max(1080, S.h);
     modal('New document',
-      '<div class="row"><label>Width</label><input type="number" id="dlg-w" min="1" max="2048" value="' + S.w + '"></div>' +
-      '<div class="row"><label>Height</label><input type="number" id="dlg-h" min="1" max="2048" value="' + S.h + '"></div>' +
+      '<div class="row"><label>Width</label><input type="number" id="dlg-w" min="1" max="2048" value="' + dw + '"></div>' +
+      '<div class="row"><label>Height</label><input type="number" id="dlg-h" min="1" max="2048" value="' + dh + '"></div>' +
       '<div class="presets-row" id="dlg-presets">' +
       TEMPLATES.map(function (t, i) { return '<button class="btn" data-t="' + i + '">' + t.label + '</button>'; }).join('') +
       '</div><p class="hint">Pick a template for banners and social posts, or type your own size.</p>',
@@ -2852,7 +2982,9 @@
       document.fonts.ready.then(function () { markFontAvailability(); refitTemplateObjects(); });
     }
     setTimeout(markFontAvailability, 2500);
-    newDoc(64, 64);
+    /* a design-sized artboard: 64×64 upscaled to fill the screen is exactly the
+       "everything looks like blocks" first impression we are fixing */
+    newDoc(1024, 1024);
     S.ready = true;
     if (window.matchMedia('(min-width: 881px)').matches) openTab('text');
   }
