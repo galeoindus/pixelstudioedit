@@ -380,7 +380,7 @@
   /* Transparency checkerboard: small, low-contrast squares in screen space so it
      never competes with the artwork. */
   function drawChecker(ctx, W, H) {
-    var cell = 10;
+    var cell = 8;
     ctx.fillStyle = '#252b35';
     ctx.fillRect(0, 0, W, H);
     ctx.fillStyle = '#2c333f';
@@ -455,7 +455,9 @@
     /* --- layer 2: document content ------------------------------------------ */
     screenCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
     screenCtx.clearRect(0, 0, W, H);
-    screenCtx.imageSmoothingEnabled = false;
+    /* zoomed out → smooth preview; 100% or more → crisp pixels */
+    screenCtx.imageSmoothingEnabled = z < 1;
+    screenCtx.imageSmoothingQuality = 'high';
     screenCtx.drawImage(composite(), 0, 0, W, H);
 
     if (S.floating) {
@@ -467,7 +469,7 @@
     if (S.preview) {
       if (prevCv.width !== S.w || prevCv.height !== S.h) { prevCv.width = S.w; prevCv.height = S.h; }
       prevCtx.clearRect(0, 0, S.w, S.h);
-      prevCtx.imageSmoothingEnabled = false;
+      prevCtx.imageSmoothingEnabled = z < 1;
       drawShape(prevCtx, S.preview);
       screenCtx.drawImage(prevCv, 0, 0, W, H);
     }
