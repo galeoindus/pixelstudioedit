@@ -30,6 +30,12 @@ Everything is organised around one canvas:
 - Six ready-made layouts — Poster, Quote card, Meme, Sale banner, YouTube thumbnail, Story — that open a correctly sized canvas with a background and **editable text objects** already in place (text auto-fits the canvas, even after a web font loads)
 - Available on the start screen and from the file menu
 
+**Handles and rotation**
+- Select any object and it shows corner handles to resize and a round handle above it to rotate — shapes change size, text scales its font size
+
+**Installable, offline-capable**
+- Ships a web app manifest and a service worker, so the editor can be installed to the home screen and opens without a network connection (after the first visit)
+
 **Editable objects** (text and shapes stay live, not baked pixels)
 - Text is created as an **object**: tap it in the Layers panel to select, change the words, font, size, gradient, stroke, shadow, curve or 3D depth at any time — the object updates in place
 - Drag a selected object anywhere on the canvas with the Select tool
@@ -120,6 +126,9 @@ js/core.js          pure image routines: colour maths, effects, dithering, 3D, p
 js/app.js           editor: tools, layers, text styling, stickers, history, file IO
 tests/core.test.js  unit tests for js/core.js
 tests/ui.js         headless browser test: boots the app and drives every control
+manifest.json       PWA manifest (installable app)
+sw.js               service worker caching the app shell for offline use
+icons/              app icons (192 and 512 px)
 docs/preview.png    screenshot used above
 ```
 
