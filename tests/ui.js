@@ -256,6 +256,61 @@ const check = (name, ok, detail) => {
   await page.evaluate(() => document.querySelectorAll('#font-list .font-item')[3].click());
   check('font selection sticks', await page.evaluate(() => window.PS.state.text.font !== "'Press Start 2P', monospace"));
 
+  // 13a2 editable objects
+  await tab('layers');
+  const objCount = await page.evaluate(() => document.querySelectorAll('.object-row').length);
+  check('text became an editable object', objCount >= 1, objCount);
+  await page.evaluate(() => document.querySelector('.object-row').click());
+  await new Promise(r => setTimeout(r, 200));
+  check('object selects and loads its text', await page.evaluate(() =>
+    !!window.PS.state.selectedObj && document.querySelector('#text-content').value.length > 0));
+  const beforeEdit = await ink();
+  await page.evaluate(() => {
+    document.querySelector('#text-content').value = 'EDITED';
+    document.querySelector('#text-add').click();
+  });
+  await new Promise(r => setTimeout(r, 250));
+  const afterEdit = await ink();
+  check('editing updates the same object', afterEdit !== beforeEdit, beforeEdit + ' -> ' + afterEdit);
+  const objCountAfter = await page.evaluate(() => document.querySelectorAll('.object-row').length);
+  check('editing does not add a second object', objCountAfter === objCount, objCount + ' -> ' + objCountAfter);
+
+  // drag the selected object with the select tool
+  await tool('select');
+  const objBox = await page.evaluate(() => {
+    const o = window.PS.state.objects[0];
+    return { x: o.x, y: o.y };
+  });
+  const from = await at(objBox.x + 2, objBox.y + 4);
+  const to = await at(objBox.x + 12, objBox.y + 14);
+  await page.mouse.move(from.x, from.y);
+  await page.mouse.down();
+  await page.mouse.move(to.x, to.y, { steps: 8 });
+  await page.mouse.up();
+  await new Promise(r => setTimeout(r, 250));
+  const moved = await page.evaluate(() => ({ x: window.PS.state.objects[0].x, y: window.PS.state.objects[0].y }));
+  check('object drags on canvas', moved.x !== objBox.x || moved.y !== objBox.y, JSON.stringify([objBox, moved]));
+
+  // shapes
+  await tab('layers');
+  await page.evaluate(() => document.querySelector('[data-add-shape="ellipse"]').click());
+  await new Promise(r => setTimeout(r, 200));
+  check('shape object added', (await page.evaluate(() => window.PS.state.objects.length)) >= 2);
+
+  // flatten removes the object but keeps pixels
+  const inkBeforeFlat = await ink();
+  await page.evaluate(() => document.querySelector('#obj-flatten').click());
+  await new Promise(r => setTimeout(r, 250));
+  check('flatten bakes the object', (await ink()) >= inkBeforeFlat - 5 &&
+    (await page.evaluate(() => window.PS.state.objects.length)) >= 1);
+
+  // save / reopen keeps objects
+  const project = await page.evaluate(() => {
+    const s = window.PS.state;
+    return { objects: s.objects.length, w: s.w, h: s.h };
+  });
+  check('objects are part of the document', project.objects >= 1, JSON.stringify(project));
+
   // 13b stickers
   await tab('stickers');
   const stickers = await page.evaluate(() => document.querySelectorAll('#sticker-grid .sticker').length);
