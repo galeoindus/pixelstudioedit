@@ -1,0 +1,24 @@
+name: ci
+
+# Added by the automation maintenance run (WF-04, task 20261103-F01).
+# Until now nothing verified this repository: main deploys the live editor
+# and a syntax error or a broken core function would ship unchecked.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+      - name: Syntax check every module
+        run: |
+          for f in js/*.js tests/*.js; do node --check "$f"; done
+      - name: Run core tests
+        run: node --test tests/core.test.js

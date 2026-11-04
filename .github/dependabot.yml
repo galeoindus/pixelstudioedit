@@ -1,0 +1,17 @@
+version: 2
+# Added by the automation maintenance run (WF-04, task 20261103-F01).
+# This repository has no package manager, so only the Actions used by the
+# new ci.yml need tracking. Grouped so a version bump arrives as one PR.
+
+updates:
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "05:15"
+      timezone: "Asia/Kolkata"
+    open-pull-requests-limit: 5
+    groups:
+      github-actions:
+        patterns: ["*"]
