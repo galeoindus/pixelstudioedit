@@ -654,7 +654,7 @@ const check = (name, ok, detail) => {
   await page.evaluate(() => document.querySelector('.tab[data-tab="nirbhar"]').click());
   await new Promise(r => setTimeout(r, 300));
   const nbCards = await page.evaluate(() => document.querySelectorAll('[data-nb-tool]').length);
-  check('nirbhar hub lists every tool', nbCards === 13, nbCards);
+  check('nirbhar hub lists every tool', nbCards === 14, nbCards);
   await page.evaluate(() => document.querySelector('[data-nb-tool="cut"]').click());
   await new Promise(r => setTimeout(r, 800));
   const nbPreview = await page.evaluate(() => {
@@ -684,7 +684,21 @@ const check = (name, ok, detail) => {
     tools: document.querySelectorAll('.nb-manual-tool').length
   }));
   check('nirbhar manual is multilingual', nbManual.langs >= 9, JSON.stringify(nbManual));
-  check('nirbhar manual covers every tool', nbManual.tools === 13, nbManual.tools);
+  check('nirbhar manual covers every tool', nbManual.tools === 14, nbManual.tools);
+  await page.evaluate(() => document.querySelector('.nb-overlay [data-close]').click());
+  await new Promise(r => setTimeout(r, 150));
+  await page.evaluate(() => document.querySelector('[data-nb-tool="paper"]').click());
+  await new Promise(r => setTimeout(r, 900));
+  const fileTool = await page.evaluate(() => ({
+    label: document.querySelector('[data-apply]').textContent.trim(),
+    downloadShown: !document.querySelector('[data-download]').hidden,
+    note: document.getElementById('nb-note').textContent
+  }));
+  check('file tools generate a file instead of a layer',
+    /Generate|बनाएं|जनरेट/i.test(fileTool.label) && fileTool.downloadShown, JSON.stringify(fileTool));
+  await page.evaluate(() => document.querySelector('.nb-overlay [data-close]').click());
+  await new Promise(r => setTimeout(r, 150));
+  await page.evaluate(() => document.getElementById('nb-manual').click());
   await page.evaluate(() => document.querySelector('[data-nb-lang="hi"]').click());
   await new Promise(r => setTimeout(r, 250));
   const nbHindi = await page.evaluate(() => document.querySelector('.nb-manual h4').textContent);

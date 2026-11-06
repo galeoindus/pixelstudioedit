@@ -1013,6 +1013,280 @@
     return concatBytes(chunks);
   }
 
+
+  /* --------------------------------------------------- 1b. Cut refinement
+   * A raw flood fill leaves two kinds of mess: specks of background that were
+   * never reached, and holes inside the subject that were the same colour as
+   * the background. Both are fixed here by labelling connected regions.
+   */
+
+  function labelRegions(img, opaque) {
+    var w = img.width, h = img.height, d = img.data, n = w * h;
+    var labels = new Int32Array(n).fill(-1);
+    var sizes = [];
+    var queue = new Int32Array(n);
+    var count = 0;
+    for (var start = 0; start < n; start++) {
+      var isOn = opaque ? d[start * 4 + 3] >= 8 : d[start * 4 + 3] < 8;
+      if (!isOn || labels[start] !== -1) continue;
+      var qh = 0, qt = 0;
+      queue[qt++] = start;
+      labels[start] = count;
+      var area = 0;
+      while (qh < qt) {
+        var idx = queue[qh++];
+        area++;
+        var x = idx % w, y = (idx - x) / w;
+        if (x > 0) { var l = idx - 1; if (labels[l] === -1 && (opaque ? d[l * 4 + 3] >= 8 : d[l * 4 + 3] < 8)) { labels[l] = count; queue[qt++] = l; } }
+        if (x < w - 1) { var r = idx + 1; if (labels[r] === -1 && (opaque ? d[r * 4 + 3] >= 8 : d[r * 4 + 3] < 8)) { labels[r] = count; queue[qt++] = r; } }
+        if (y > 0) { var u = idx - w; if (labels[u] === -1 && (opaque ? d[u * 4 + 3] >= 8 : d[u * 4 + 3] < 8)) { labels[u] = count; queue[qt++] = u; } }
+        if (y < h - 1) { var dn = idx + w; if (labels[dn] === -1 && (opaque ? d[dn * 4 + 3] >= 8 : d[dn * 4 + 3] < 8)) { labels[dn] = count; queue[qt++] = dn; } }
+      }
+      sizes.push(area);
+      count++;
+    }
+    return { labels: labels, sizes: sizes, count: count };
+  }
+
+  function refineCut(img, opts) {
+    opts = opts || {};
+    var w = img.width, h = img.height, n = w * h;
+    var minArea = opts.minArea == null ? 0.0015 : opts.minArea;   /* share of the frame */
+    var fillHoles = opts.fillHoles !== false;
+    var out = clone(img);
+    var d = out.data;
+
+    /* 1. drop specks: keep the largest opaque region and anything above minArea */
+    var fg = labelRegions(out, true);
+    if (fg.count > 1) {
+      var biggest = 0;
+      for (var i = 1; i < fg.count; i++) if (fg.sizes[i] > fg.sizes[biggest]) biggest = i;
+      var limit = Math.max(8, n * minArea);
+      for (var p = 0; p < n; p++) {
+        var lab = fg.labels[p];
+        if (lab < 0) continue;
+        if (lab !== biggest && fg.sizes[lab] < limit) d[p * 4 + 3] = 0;
+      }
+    }
+
+    /* 2. fill holes: background regions that never touch the frame edge are
+       inside the subject, so paint them with the colour around them */
+    if (fillHoles) {
+      var bg = labelRegions(out, false);
+      var touchesEdge = new Uint8Array(bg.count);
+      for (var x = 0; x < w; x++) {
+        var top = bg.labels[x], bot = bg.labels[(h - 1) * w + x];
+        if (top >= 0) touchesEdge[top] = 1;
+        if (bot >= 0) touchesEdge[bot] = 1;
+      }
+      for (var y = 0; y < h; y++) {
+        var lf = bg.labels[y * w], rt = bg.labels[y * w + w - 1];
+        if (lf >= 0) touchesEdge[lf] = 1;
+        if (rt >= 0) touchesEdge[rt] = 1;
+      }
+      var sums = [];
+      for (var c = 0; c < bg.count; c++) sums.push([0, 0, 0, 0]);
+      for (var q = 0; q < n; q++) {
+        var cl = bg.labels[q];
+        if (cl < 0 || touchesEdge[cl]) continue;
+        var qx = q % w, qy = (q - qx) / w;
+        /* average the opaque neighbours that ring this hole */
+        for (var dy = -1; dy <= 1; dy++) {
+          for (var dx = -1; dx <= 1; dx++) {
+            var nx = qx + dx, ny = qy + dy;
+            if (nx < 0 || ny < 0 || nx >= w || ny >= h) continue;
+            var ni = (ny * w + nx) * 4;
+            if (d[ni + 3] >= 8) { sums[cl][0] += d[ni]; sums[cl][1] += d[ni + 1]; sums[cl][2] += d[ni + 2]; sums[cl][3]++; }
+          }
+        }
+      }
+      for (var q2 = 0; q2 < n; q2++) {
+        var cl2 = bg.labels[q2];
+        if (cl2 < 0 || touchesEdge[cl2]) continue;
+        var s = sums[cl2], j = q2 * 4;
+        if (s[3] > 0) { d[j] = s[0] / s[3]; d[j + 1] = s[1] / s[3]; d[j + 2] = s[2] / s[3]; }
+        d[j + 3] = 255;
+      }
+    }
+    return out;
+  }
+
+  /* ------------------------------------------------- 1c. Background & shadow
+   * A cutout is only half the job: product and profile pictures want a new
+   * background and a soft shadow. Both are drawn from the alpha channel.
+   */
+  function backdrop(img, opts) {
+    opts = opts || {};
+    var w = img.width, h = img.height, n = w * h;
+    var mode = opts.mode || 'color';            /* color | gradient | none */
+    var c1 = hexToRgb(opts.color || '#ffffff');
+    var c2 = hexToRgb(opts.color2 || '#dbeafe');
+    var vertical = opts.vertical !== false;
+    var out = blank(w, h);
+    var o = out.data;
+    var i, x, y;
+
+    if (mode !== 'none') {
+      for (y = 0; y < h; y++) {
+        for (x = 0; x < w; x++) {
+          var t = mode === 'gradient' ? (vertical ? y / Math.max(1, h - 1) : x / Math.max(1, w - 1)) : 0;
+          var i2 = (y * w + x) * 4;
+          o[i2] = lerp(c1[0], c2[0], t);
+          o[i2 + 1] = lerp(c1[1], c2[1], t);
+          o[i2 + 2] = lerp(c1[2], c2[2], t);
+          o[i2 + 3] = 255;
+        }
+      }
+    }
+
+    /* soft shadow from a blurred, offset copy of the alpha channel */
+    if (opts.shadow) {
+      var blur = Math.max(1, Math.round(opts.shadow.blur || 12));
+      var dx = Math.round(opts.shadow.dx || 0), dy = Math.round(opts.shadow.dy || 8);
+      var op = clamp(opts.shadow.opacity == null ? 0.45 : opts.shadow.opacity, 0, 1);
+      var sc = hexToRgb(opts.shadow.color || '#000000');
+      var alpha = new Float32Array(n);
+      for (i = 0; i < n; i++) alpha[i] = img.data[i * 4 + 3] / 255;
+      var soft = boxBlurAlpha(alpha, w, h, blur);
+      for (y = 0; y < h; y++) {
+        for (x = 0; x < w; x++) {
+          var sx = x - dx, sy = y - dy;
+          if (sx < 0 || sy < 0 || sx >= w || sy >= h) continue;
+          var a = clamp(soft[sy * w + sx] * op, 0, 1);
+          if (a <= 0) continue;
+          var j = (y * w + x) * 4;
+          o[j] = lerp(o[j], sc[0], a);
+          o[j + 1] = lerp(o[j + 1], sc[1], a);
+          o[j + 2] = lerp(o[j + 2], sc[2], a);
+        }
+      }
+    }
+
+    /* composite the subject on top, straight alpha */
+    for (i = 0; i < n; i++) {
+      var k = i * 4;
+      var sa = img.data[k + 3] / 255;
+      if (sa <= 0) continue;
+      o[k] = img.data[k] * sa + o[k] * (1 - sa);
+      o[k + 1] = img.data[k + 1] * sa + o[k + 1] * (1 - sa);
+      o[k + 2] = img.data[k + 2] * sa + o[k + 2] * (1 - sa);
+      o[k + 3] = clamp(o[k + 3] + sa * 255, 0, 255);
+    }
+    return out;
+  }
+
+  /* ------------------------------------------------------- 1d. Collage
+   * Several images on one sheet, cropped to a grid — the layout work people
+   * open a design app for, done from the pixels that are already here.
+   */
+  function collage(images, opts) {
+    opts = opts || {};
+    var list = (images || []).filter(Boolean);
+    if (!list.length) return blank(1, 1);
+    var cols = clamp(opts.cols || Math.ceil(Math.sqrt(list.length)), 1, 8);
+    var rows = Math.ceil(list.length / cols);
+    var cellW = Math.max(8, Math.round(opts.cellW || Math.min(list[0].width, 800)));
+    var cellH = Math.max(8, Math.round(opts.cellH || cellW));
+    var gap = clamp(opts.gap == null ? 12 : opts.gap, 0, 200);
+    var bg = hexToRgb(opts.bg || '#ffffff');
+    var W = cols * cellW + (cols + 1) * gap;
+    var H = rows * cellH + (rows + 1) * gap;
+    var out = blank(W, H);
+    for (var i = 0; i < out.data.length; i += 4) {
+      out.data[i] = bg[0]; out.data[i + 1] = bg[1]; out.data[i + 2] = bg[2]; out.data[i + 3] = 255;
+    }
+    list.forEach(function (im, idx) {
+      var r = Math.floor(idx / cols), c = idx % cols;
+      var tile = opts.mode === 'contain'
+        ? containInto(im, cellW, cellH)
+        : coverCrop(im, cellW, cellH, opts.cx, opts.cy);
+      var ox = gap + c * (cellW + gap), oy = gap + r * (cellH + gap);
+      if (tile.width < cellW) ox += Math.round((cellW - tile.width) / 2);
+      if (tile.height < cellH) oy += Math.round((cellH - tile.height) / 2);
+      for (var y = 0; y < tile.height; y++) {
+        var by = oy + y;
+        if (by < 0 || by >= H) continue;
+        for (var x = 0; x < tile.width; x++) {
+          var bx = ox + x;
+          if (bx < 0 || bx >= W) continue;
+          var si = (y * tile.width + x) * 4, di = (by * W + bx) * 4;
+          var a = tile.data[si + 3] / 255;
+          if (a <= 0) continue;
+          for (var ch = 0; ch < 3; ch++) {
+            out.data[di + ch] = tile.data[si + ch] * a + out.data[di + ch] * (1 - a);
+          }
+        }
+      }
+    });
+    return out;
+  }
+
+  /* Fit the whole image inside the cell, letterboxed on a transparent pad. */
+  function containInto(img, cw, ch) {
+    var scale = Math.min(cw / img.width, ch / img.height);
+    var tw = Math.max(1, Math.round(img.width * scale));
+    var th = Math.max(1, Math.round(img.height * scale));
+    return resizeKernel(img, tw, th, 'bilinear');
+  }
+
+  /* --------------------------------------------------------- 1e. ZIP pack
+   * Several files in one download. Store-only (no compression) keeps it small
+   * in code and instant; PNG and JPEG are already compressed anyway.
+   */
+  var CRC_TABLE = (function () {
+    var table = new Int32Array(256);
+    for (var i = 0; i < 256; i++) {
+      var c = i;
+      for (var k = 0; k < 8; k++) c = (c & 1) ? (0xEDB88320 ^ (c >>> 1)) : (c >>> 1);
+      table[i] = c;
+    }
+    return table;
+  })();
+
+  function crc32(bytes) {
+    var c = -1;
+    for (var i = 0; i < bytes.length; i++) c = CRC_TABLE[(c ^ bytes[i]) & 0xFF] ^ (c >>> 8);
+    return (c ^ -1) >>> 0;
+  }
+
+  function zip(files) {
+    var chunks = [];
+    var central = [];
+    var offset = 0;
+    var now = new Date();
+    var dosTime = ((now.getHours() & 31) << 11) | ((now.getMinutes() & 63) << 5) | ((now.getSeconds() / 2) & 31);
+    var dosDate = (((now.getFullYear() - 1980) & 127) << 9) | (((now.getMonth() + 1) & 15) << 5) | (now.getDate() & 31);
+
+    function u16(v) { return new Uint8Array([v & 255, (v >> 8) & 255]); }
+    function u32(v) { return new Uint8Array([v & 255, (v >> 8) & 255, (v >> 16) & 255, (v >>> 24) & 255]); }
+    function nameBytes(name) { return utf8Bytes(String(name || 'file')); }
+
+    (files || []).forEach(function (f) {
+      var name = nameBytes(f.name);
+      var data = f.data instanceof Uint8Array ? f.data : new Uint8Array(f.data);
+      var crc = crc32(data);
+      var local = concatBytes([
+        u32(0x04034b50), u16(20), u16(0), u16(0), u16(dosTime), u16(dosDate),
+        u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0), name
+      ]);
+      chunks.push(local, data);
+      central.push(concatBytes([
+        u32(0x02014b50), u16(20), u16(20), u16(0), u16(0), u16(dosTime), u16(dosDate),
+        u32(crc), u32(data.length), u32(data.length), u16(name.length), u16(0), u16(0),
+        u16(0), u16(0), u32(0), u32(offset), name
+      ]));
+      offset += local.length + data.length;
+    });
+
+    var centralBytes = concatBytes(central);
+    var end = concatBytes([
+      u32(0x06054b50), u16(0), u16(0),
+      u16(central.length), u16(central.length),
+      u32(centralBytes.length), u32(offset), u16(0)
+    ]);
+    return concatBytes(chunks.concat([centralBytes, end]));
+  }
+
   /* -------------------------------------------------------- 8. Nirbhar Sheet
    * ICO / favicon packs. Windows accepts PNG payloads inside an ICO container,
    * so the pack is built from the PNGs the canvas already produces.
@@ -1466,7 +1740,7 @@
   /* ------------------------------------------------------------------ exports */
 
   return {
-    version: '1.0.0',
+    version: '1.1.0',
     clamp: clamp,
     hexToRgb: hexToRgb,
     rgbToHex: rgbToHex,
@@ -1480,6 +1754,12 @@
     sample: sample,
     /* Cut */
     cutout: cutout,
+    refineCut: refineCut,
+    labelRegions: labelRegions,
+    backdrop: backdrop,
+    collage: collage,
+    zip: zip,
+    crc32: crc32,
     /* Clear */
     stats: stats,
     sharpness: sharpnessOf,

@@ -17,6 +17,74 @@
   function app() { return window.PSApp || null; }
   function byId(id) { return document.getElementById(id); }
 
+  /* ---------------------------------------------------------------- worker
+   * Background removal, enhancement, upscaling, tone and tiling are pure maths,
+   * so they run in a worker on a big canvas and the editor never freezes. Any
+   * failure falls back to the same call on the main thread.
+   */
+  var worker = null;
+  var workerSeq = 0;
+  var workerPending = {};
+
+  function ensureWorker() {
+    if (worker !== null) return worker;
+    try {
+      worker = new Worker('js/nirbhar-worker.js');
+      worker.onmessage = function (e) {
+        var d = e.data || {};
+        var pending = workerPending[d.id];
+        if (!pending) return;
+        delete workerPending[d.id];
+        if (d.error) { pending.reject(new Error(d.error)); return; }
+        pending.resolve({
+          img: { width: d.width, height: d.height, data: new Uint8ClampedArray(d.buffer) },
+          note: d.note
+        });
+      };
+      worker.onerror = function () {
+        Object.keys(workerPending).forEach(function (k) {
+          workerPending[k].reject(new Error('worker failed'));
+          delete workerPending[k];
+        });
+        worker = false;                     /* stay on the main thread from now on */
+      };
+    } catch (err) {
+      worker = false;
+    }
+    return worker;
+  }
+
+  function runInWorker(op, img, args) {
+    var w = ensureWorker();
+    if (!w) return Promise.reject(new Error('no worker'));
+    return new Promise(function (resolve, reject) {
+      var id = ++workerSeq;
+      workerPending[id] = { resolve: resolve, reject: reject };
+      var copy = new Uint8ClampedArray(img.data);   /* the buffer is transferred */
+      w.postMessage({ id: id, op: op, img: { width: img.width, height: img.height, data: copy.buffer }, args: args },
+        [copy.buffer]);
+      setTimeout(function () {
+        if (workerPending[id]) {
+          delete workerPending[id];
+          reject(new Error('worker timeout'));
+        }
+      }, 60000);
+    });
+  }
+
+  /* Runs a tool at full resolution, off the main thread when it can be. */
+  function runFull(tool, img, values) {
+    if (tool.workerArgs && img.width * img.height > 400000) {
+      var spec = tool.workerArgs(values, 1);
+      if (spec) {
+        return runInWorker(spec.op, img, spec.args).catch(function () {
+          return tool.run(img, values, 1);
+        });
+      }
+    }
+    return tool.run(img, values, 1);
+  }
+
   /* ---------------------------------------------------------------- language */
 
   function currentLang() {
@@ -156,6 +224,44 @@
 
   /* --------------------------------------------------------------- tool list */
 
+  /* The worker and the main thread must be given exactly the same arguments. */
+  function cutArgs(v, scale) {
+    var k = scale || 1;
+    return {
+      mode: v.mode, color: v.color, tolerance: v.tolerance,
+      feather: Math.max(0, Math.round(v.feather * k)), despill: v.despill,
+      refine: v.refine, minArea: v.minArea / 100, fillHoles: true,
+      backdrop: backdropArgs(v, k)
+    };
+  }
+
+  function backdropArgs(v, k) {
+    if (v.bgMode === 'none' && !v.shadow) return null;
+    return {
+      mode: v.bgMode === 'none' ? 'none' : v.bgMode,
+      color: v.bgColor, color2: v.bgColor2, vertical: true,
+      shadow: v.shadow ? {
+        blur: Math.max(1, Math.round(v.shadowBlur * k)),
+        dy: Math.round(v.shadowY * k), dx: 0,
+        opacity: v.shadowOpacity / 100
+      } : null
+    };
+  }
+
+  function clearArgs(v) {
+    return {
+      auto: v.auto, wb: v.wb, levels: v.levels, denoise: v.denoise,
+      dehaze: v.dehaze, clarity: v.clarity, sharpen: v.sharpen
+    };
+  }
+
+  function toneArgs(v, scale) {
+    return {
+      style: v.style, cell: Math.max(2, Math.round(v.cell * (scale || 1))), angle: v.angle,
+      ink: v.ink, paper: v.paper, cvd: v.cvd
+    };
+  }
+
   var TOOLS = [
     {
       id: 'cut', icon: '✂', name: 'Nirbhar Cut', tag: 'Background remover',
@@ -165,14 +271,29 @@
         { k: 'color', t: 'color', def: '#ffffff', label: 'Colour to remove' },
         { k: 'tolerance', t: 'range', def: 26, min: 2, max: 90, step: 1, label: 'Tolerance' },
         { k: 'feather', t: 'range', def: 1, min: 0, max: 6, step: 1, label: 'Edge soften' },
-        { k: 'despill', t: 'check', def: true, label: 'Clean colour fringes' }
+        { k: 'despill', t: 'check', def: true, label: 'Clean colour fringes' },
+        { k: 'refine', t: 'check', def: true, label: 'Remove specks, fill holes' },
+        { k: 'minArea', t: 'range', def: 0.15, min: 0.02, max: 2, step: 0.02, label: 'Smallest kept piece %' },
+        { k: 'bgMode', t: 'select', def: 'none', label: 'New background', opts: [['none', 'Keep it transparent'], ['color', 'Solid colour'], ['gradient', 'Gradient']] },
+        { k: 'bgColor', t: 'color', def: '#ffffff', label: 'Background colour' },
+        { k: 'bgColor2', t: 'color', def: '#dbeafe', label: 'Gradient end' },
+        { k: 'shadow', t: 'check', def: false, label: 'Soft shadow' },
+        { k: 'shadowBlur', t: 'range', def: 18, min: 2, max: 60, step: 2, label: 'Shadow softness' },
+        { k: 'shadowY', t: 'range', def: 10, min: 0, max: 40, step: 1, label: 'Shadow offset' },
+        { k: 'shadowOpacity', t: 'range', def: 45, min: 5, max: 100, step: 5, label: 'Shadow strength %' }
       ],
-      run: function (img, v) {
+      workerArgs: function (v, scale) { return { op: 'cut', args: cutArgs(v, scale) }; },
+      run: function (img, v, scale) {
         var out = N.cutout(img, {
           mode: v.mode, color: v.color, tolerance: v.tolerance,
-          feather: v.feather, despill: v.despill
+          feather: Math.max(0, Math.round(v.feather * (scale || 1))), despill: v.despill
         });
-        return { img: out.img, note: Math.round(out.removed * 100) + '% of the frame cleared · key ' + out.key };
+        var res = out.img;
+        if (v.refine) res = N.refineCut(res, { minArea: v.minArea / 100, fillHoles: true });
+        var bd = backdropArgs(v, scale);
+        if (bd) res = N.backdrop(res, bd);
+        return { img: res, note: Math.round(out.removed * 100) + '% cleared · key ' + out.key +
+          (bd ? ' · new background' : ' · transparent') };
       }
     },
     {
@@ -187,6 +308,7 @@
         { k: 'clarity', t: 'range', def: 25, min: 0, max: 100, step: 5, label: 'Clarity' },
         { k: 'sharpen', t: 'range', def: 45, min: 0, max: 200, step: 5, label: 'Sharpen' }
       ],
+      workerArgs: function (v) { return { op: 'clear', args: clearArgs(v) }; },
       run: function (img, v) {
         if (v.auto) {
           var res = N.autoEnhance(img);
@@ -207,6 +329,9 @@
         { k: 'kernel', t: 'select', def: 'lanczos3', label: 'Kernel', opts: [['lanczos3', 'Lanczos — photos'], ['bicubic', 'Bicubic — smooth'], ['epx', 'EPX — pixel art edges'], ['nearest', 'Nearest — hard pixels']] },
         { k: 'sharpen', t: 'range', def: 25, min: 0, max: 150, step: 5, label: 'Sharpen after' }
       ],
+      workerArgs: function (v) {
+        return { op: 'zoom', args: { factor: parseInt(v.factor, 10), kernel: v.kernel, sharpen: v.sharpen } };
+      },
       run: function (img, v) {
         var big = N.upscale(img, parseInt(v.factor, 10), v.kernel);
         if (v.sharpen > 0) N.unsharp(big, v.sharpen, 1);
@@ -224,11 +349,13 @@
         { k: 'paper', t: 'color', def: '#ffffff', label: 'Paper' },
         { k: 'cvd', t: 'select', def: 'deuteranopia', label: 'Vision type', opts: [['deuteranopia', 'Deuteranopia'], ['protanopia', 'Protanopia'], ['tritanopia', 'Tritanopia'], ['achromatopsia', 'No colour']] }
       ],
-      run: function (img, v) {
-        if (v.style === 'halftone') return { img: N.halftone(img, { cell: v.cell, angle: v.angle, ink: v.ink, paper: v.paper, mono: true }) };
-        if (v.style === 'duotone') return { img: N.duotone(img, v.ink, v.paper) };
-        if (v.style === 'gradmap') return { img: N.gradientMap(img, [{ t: 0, color: v.ink }, { t: 0.55, color: '#8a6fb0' }, { t: 1, color: v.paper }]) };
-        if (v.style === 'sketch') return { img: N.sketch(img, { ink: v.ink, paper: v.paper, strength: 1.2 }) };
+      workerArgs: function (v, scale) { return { op: 'tone', args: toneArgs(v, scale) }; },
+      run: function (img, v, scale) {
+        var cell = Math.max(2, Math.round(v.cell * (scale || 1)));
+        if (v.style === 'halftone') return { img: N.halftone(img, { cell: cell, angle: v.angle, ink: v.ink, paper: v.paper, mono: true }), note: 'Halftone · ' + cell + ' px dots at ' + v.angle + '°' };
+        if (v.style === 'duotone') return { img: N.duotone(img, v.ink, v.paper), note: 'Duotone · ' + v.ink + ' → ' + v.paper };
+        if (v.style === 'gradmap') return { img: N.gradientMap(img, [{ t: 0, color: v.ink }, { t: 0.55, color: '#8a6fb0' }, { t: 1, color: v.paper }]), note: 'Gradient map · three stops' };
+        if (v.style === 'sketch') return { img: N.sketch(img, { ink: v.ink, paper: v.paper, strength: 1.2 }), note: 'Pencil outline' };
         return { img: N.colorBlind(img, v.cvd), note: 'Simulated ' + v.cvd };
       }
     },
@@ -238,8 +365,11 @@
       fields: [
         { k: 'band', t: 'range', def: 0, min: 0, max: 120, step: 2, label: 'Seam blend (0 = auto)' }
       ],
-      run: function (img, v) {
-        var band = v.band > 0 ? v.band : null;
+      workerArgs: function (v, scale) {
+        return { op: 'tile', args: { band: v.band > 0 ? Math.round(v.band * (scale || 1)) : 0 } };
+      },
+      run: function (img, v, scale) {
+        var band = v.band > 0 ? Math.max(1, Math.round(v.band * (scale || 1))) : null;
         return { img: N.makeSeamless(img, band), note: 'Tile it in any direction — the edges now match' };
       }
     },
@@ -304,7 +434,8 @@
       source: 'design', kind: 'file',
       fields: [
         { k: 'mode', t: 'select', def: 'icons', label: 'What to build', opts: [['icons', 'App icon + .ico pack'], ['sprite', 'Sprite sheet from layers']] },
-        { k: 'gap', t: 'range', def: 0, min: 0, max: 32, step: 1, label: 'Gap (sprite sheet)' }
+        { k: 'gap', t: 'range', def: 0, min: 0, max: 32, step: 1, label: 'Gap (sprite sheet)' },
+        { k: 'zip', t: 'check', def: true, label: 'Pack icons into one .zip' }
       ],
       run: function (img, v) {
         if (v.mode === 'sprite') {
@@ -321,21 +452,31 @@
         }
         var sizes = [16, 32, 48, 64, 128, 256];
         var ico = [];
+        var pngFiles = [];
         var chain = Promise.resolve();
         sizes.forEach(function (s) {
           chain = chain.then(function () {
             var scaled = N.resize(img, s, s, 'bicubic');
             return canvasToPng(scaled).then(function (png) {
               ico.push({ png: png, width: s, height: s });
+              pngFiles.push({ name: 'icon-' + s + '.png', data: png });
             });
           });
         });
         return chain.then(function () {
           var bytes = N.buildIco(ico);
+          if (!v.zip) {
+            return {
+              blob: new Blob([bytes], { type: 'image/x-icon' }),
+              filename: 'favicon.ico',
+              note: '16–256 px inside one .ico'
+            };
+          }
+          var pack = N.zip([{ name: 'favicon.ico', data: bytes }].concat(pngFiles));
           return {
-            blob: new Blob([bytes], { type: 'image/x-icon' }),
-            filename: 'favicon.ico',
-            note: '16–256 px inside one .ico'
+            blob: new Blob([pack], { type: 'application/zip' }),
+            filename: 'nirbhar-icons.zip',
+            note: 'favicon.ico + 6 PNG sizes · ' + Math.round(pack.length / 1024) + ' KB'
           };
         });
       }
@@ -396,6 +537,8 @@
         { k: 'cols', t: 'range', def: 3, min: 1, max: 6, step: 1, label: 'Columns' },
         { k: 'rows', t: 'range', def: 3, min: 1, max: 6, step: 1, label: 'Rows' },
         { k: 'gap', t: 'range', def: 10, min: 0, max: 40, step: 1, label: 'Gap (px)' },
+        { k: 'cx', t: 'range', def: 50, min: 0, max: 100, step: 1, label: 'Crop across %' },
+        { k: 'cy', t: 'range', def: 42, min: 0, max: 100, step: 1, label: 'Crop down %' },
         { k: 'bg', t: 'color', def: '#ffffff', label: 'Sheet colour' }
       ],
       run: function (img, v) {
@@ -404,8 +547,39 @@
         if (v.preset === 'us2x2') { wmm = 50.8; hmm = 50.8; }
         else if (v.preset === 'square') { wmm = 40; hmm = 40; }
         var pw = Math.round(wmm * dpi), ph = Math.round(hmm * dpi);
-        var out = N.idSheet(img, { photoW: pw, photoH: ph, cols: v.cols, rows: v.rows, gap: v.gap, bg: v.bg });
-        return { img: out, note: v.cols * v.rows + ' photos · ' + pw + '×' + ph + ' px each at ' + v.dpi + ' DPI' };
+        var out = N.idSheet(img, {
+          photoW: pw, photoH: ph, cols: v.cols, rows: v.rows, gap: v.gap, bg: v.bg,
+          cx: v.cx / 100, cy: v.cy / 100
+        });
+        return {
+          img: out,
+          note: v.cols * v.rows + ' photos · ' + pw + '×' + ph + ' px each at ' + v.dpi + ' DPI · crop ' +
+            v.cx + '% across, ' + v.cy + '% down'
+        };
+      }
+    },
+    {
+      id: 'collage', icon: '▥', name: 'Nirbhar Collage', tag: 'Photo grid',
+      source: 'design', kind: 'image', newDoc: true, replaceOk: true,
+      fields: [
+        { k: 'files', t: 'file', def: '', label: 'Photos for the grid', multiple: true, required: true },
+        { k: 'cols', t: 'range', def: 3, min: 1, max: 6, step: 1, label: 'Columns' },
+        { k: 'cell', t: 'range', def: 320, min: 80, max: 1200, step: 20, label: 'Cell size (px)' },
+        { k: 'gap', t: 'range', def: 12, min: 0, max: 80, step: 2, label: 'Gap (px)' },
+        { k: 'mode', t: 'select', def: 'cover', label: 'Photo fit', opts: [['cover', 'Fill the cell'], ['contain', 'Whole photo']] },
+        { k: 'bg', t: 'color', def: '#ffffff', label: 'Background' }
+      ],
+      run: function (img, v) {
+        if (!v.files || !v.files.length) {
+          return Promise.reject(new Error(T('ui.pickCollage', 'Add at least two photos to build a grid')));
+        }
+        return loadFiles(v.files).then(function (images) {
+          if (!images.length) throw new Error(T('ui.pickCollage', 'Add at least two photos to build a grid'));
+          var out = N.collage(images, {
+            cols: v.cols, cellW: v.cell, cellH: v.cell, gap: v.gap, bg: v.bg, mode: v.mode
+          });
+          return { img: out, note: images.length + ' photos · ' + out.width + '×' + out.height };
+        });
       }
     },
     {
@@ -435,7 +609,8 @@
         { k: 'files', t: 'file', def: '', label: 'Images to convert', multiple: true, required: true },
         { k: 'maxSide', t: 'range', def: 1600, min: 200, max: 4000, step: 100, label: 'Longest side (px)' },
         { k: 'format', t: 'select', def: 'image/jpeg', label: 'Format', opts: [['image/jpeg', 'JPEG'], ['image/png', 'PNG'], ['image/webp', 'WebP']] },
-        { k: 'quality', t: 'range', def: 88, min: 40, max: 100, step: 2, label: 'Quality' }
+        { k: 'quality', t: 'range', def: 88, min: 40, max: 100, step: 2, label: 'Quality' },
+        { k: 'zip', t: 'check', def: true, label: 'One .zip instead of many files' }
       ],
       run: function (img, v) {
         if (!v.files || !v.files.length) {
@@ -443,7 +618,8 @@
         }
         return loadFiles(v.files).then(function (images) {
           var chain = Promise.resolve();
-          var count = 0;
+          var made = [];
+          var ext = v.format.split('/')[1].replace('jpeg', 'jpg');
           images.forEach(function (im, i) {
             chain = chain.then(function () {
               var scale = Math.min(1, v.maxSide / Math.max(im.width, im.height));
@@ -453,16 +629,22 @@
               var cv = toCanvas(out);
               return new Promise(function (resolve) {
                 cv.toBlob(function (blob) {
-                  var ext = v.format.split('/')[1].replace('jpeg', 'jpg');
-                  download(blob, 'nirbhar-' + (i + 1) + '.' + ext);
-                  count++;
-                  setTimeout(resolve, 350);
+                  made.push({ blob: blob, name: 'nirbhar-' + (i + 1) + '.' + ext });
+                  resolve();
                 }, v.format, v.quality / 100);
               });
             });
           });
           return chain.then(function () {
-            return { done: true, note: count + ' file' + (count === 1 ? '' : 's') + ' converted and saved' };
+            if (!made.length) throw new Error(T('ui.pickFiles', 'Choose at least one image first'));
+            var total = made.reduce(function (n, f) { return n + (f.blob.size || 0); }, 0);
+            /* the files are handed back here; Generate is what writes them out,
+               so changing a slider never fires a burst of downloads */
+            return {
+              done: true,
+              files: made,
+              note: made.length + ' file' + (made.length === 1 ? '' : 's') + ' ready · ' + Math.round(total / 1024) + ' KB'
+            };
           });
         });
       }
@@ -657,6 +839,13 @@
     var timer = null;
 
     if (tool.kind === 'palette') { applyBtn.textContent = T('ui.usePalette', 'Use as palette'); }
+    /* a tool that only produces a file has nothing to put on a layer */
+    if (tool.kind === 'file') {
+      /* these tools write a file rather than a layer, so the primary button
+         becomes the button that actually does the work */
+      applyBtn.hidden = false;
+      applyBtn.textContent = T('ui.generate', 'Generate');
+    }
 
     function drawPreview(img) {
       var ctx = cv.getContext('2d');
@@ -673,9 +862,12 @@
       var src = sourceData(byId('nb-source').value);
       if (!src) { note.textContent = T('ui.noSource', 'Nothing to work with yet — draw something first'); return; }
       var small = thumb(src, 460);
+      /* pixel-sized settings (dot size, feather, spacing) must shrink with the
+         preview, or the preview lies about what the full-size result looks like */
+      var scale = small.width / src.width;
       var result;
       try {
-        result = tool.run(small, values);
+        result = tool.run(small, values, scale);
       } catch (err) {
         note.textContent = 'Error: ' + (err && err.message ? err.message : err);
         return;
@@ -698,7 +890,7 @@
           c2.font = '600 16px system-ui, sans-serif';
           c2.textAlign = 'center';
           c2.fillText(res.filename, 160, 90);
-          applyBtn.hidden = true;
+          applyBtn.hidden = tool.kind !== 'file';
           downloadBtn.hidden = false;
           newdocBtn.hidden = true;
         } else if (res && res.palette) {
@@ -777,6 +969,49 @@
     applyBtn.onclick = function () {
       var a = app();
       if (!a) return;
+      if (tool.kind === 'file') {
+        applyBtn.disabled = true;
+        applyBtn.textContent = T('ui.working', 'Working…');
+        var fullSrc = sourceData(srcSel.value);
+        Promise.resolve(tool.run(fullSrc, values, 1)).then(function (res) {
+          if (res && res.blob) {
+            download(res.blob, res.filename);
+            a.toast('Saved ' + res.filename);
+          } else if (res && res.files && res.files.length) {
+            if (values.zip) {
+              return Promise.all(res.files.map(function (f) {
+                return blobBytes(f.blob).then(function (bytes) { return { name: f.name, data: bytes }; });
+              })).then(function (files) {
+                var pack = N.zip(files);
+                download(new Blob([pack], { type: 'application/zip' }), 'nirbhar-batch.zip');
+                a.toast(res.files.length + ' images in one .zip');
+                note.textContent = res.files.length + ' images · ' + Math.round(pack.length / 1024) + ' KB zip';
+              });
+            }
+            /* browsers throttle a burst of downloads, so space them out */
+            var seq = Promise.resolve();
+            res.files.forEach(function (f) {
+              seq = seq.then(function () {
+                download(f.blob, f.name);
+                return new Promise(function (r) { setTimeout(r, 350); });
+              });
+            });
+            return seq.then(function () {
+              a.toast(res.files.length + ' files saved');
+              note.textContent = res.note;
+            });
+          } else if (res && res.done) {
+            a.toast(res.note || 'Done');
+          }
+          if (res && res.note) note.textContent = res.note;
+        }).catch(function (err) {
+          a.toast('Tool failed: ' + (err && err.message ? err.message : err));
+        }).then(function () {
+          applyBtn.disabled = false;
+          applyBtn.textContent = T('ui.generate', 'Generate');
+        });
+        return;
+      }
       if (tool.kind === 'palette') {
         /* the extracted colours become the palette; the harmony has its own button */
         if (lastResult && lastResult.palette) a.usePalette(lastResult.palette);
@@ -785,16 +1020,18 @@
         closeDialog();
         return;
       }
-      /* apply always works at full resolution, not on the preview */
+      /* apply always works at full resolution, off the main thread when it can */
       var full = sourceData(srcSel.value);
       if (!full) return;
       var result;
       try {
-        result = tool.run(full, values);
+        result = runFull(tool, full, values);
       } catch (err) {
         a.toast('Tool failed: ' + (err && err.message ? err.message : err));
         return;
       }
+      applyBtn.disabled = true;
+      applyBtn.textContent = T('ui.working', 'Working…');
       Promise.resolve(result).then(function (res) {
         if (!res || !res.img) return;
         if (res.img.width !== full.width || res.img.height !== full.height) {
@@ -807,6 +1044,9 @@
         closeDialog();
       }).catch(function (err) {
         a.toast('Tool failed: ' + (err && err.message ? err.message : err));
+      }).then(function () {
+        applyBtn.disabled = false;
+        applyBtn.textContent = tool.kind === 'palette' ? T('ui.usePalette', 'Use as palette') : T('ui.apply', 'Add as new layer');
       });
     };
 
@@ -925,6 +1165,8 @@
     openManual: openManual,
     tools: TOOLS,
     setLanguage: setLang,
-    get language() { return lang; }
+    get language() { return lang; },
+    /* true once the background worker is alive, false when it fell back */
+    get workerActive() { return !!worker; }
   };
 })();

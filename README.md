@@ -4,7 +4,7 @@ A free, open-source pixel art **and text** editor that runs entirely in your bro
 
 **Live editor:** [galeoindus.github.io/pixelstudioedit](https://galeoindus.github.io/pixelstudioedit/)
 
-**Nirbhar toolkit:** thirteen offline tools inside the editor — background remover, photo enhancer, upscaler, PDF maker, icon pack, SVG export, generative art and more. No upload, no account, no model download. See the [manual](docs/NIRBHAR_MANUAL.md).
+**Nirbhar toolkit:** fourteen offline tools inside the editor — background remover, photo enhancer, upscaler, PDF maker, icon pack, SVG export, generative art and more. No upload, no account, no model download. See the [manual](docs/NIRBHAR_MANUAL.md).
 
 ![Pixel Studio Edit screenshot](docs/preview.png)
 
@@ -106,7 +106,7 @@ The modes follow the job you picked on the start screen: *Create a design* and *
 
 ## Nirbhar — the offline toolkit
 
-**Nirbhar** (निर्भर, "self-reliant") is a panel of thirteen tools that do the jobs
+**Nirbhar** (निर्भर, "self-reliant") is a panel of fourteen tools that do the jobs
 people normally leave the browser for — remove a background, upscale a photo,
 make a PDF, build a favicon — and does them here, on your machine, with no
 upload, no account, no API key and no model download. Open it from the
@@ -114,19 +114,20 @@ upload, no account, no API key and no model download. Open it from the
 
 | Tool | What it does |
 | --- | --- |
-| ✂ **Nirbhar Cut** | Background remover — colour-aware flood fill from the frame edge, then edge softening and despill |
+| ✂ **Nirbhar Cut** | Background remover — colour-aware flood fill, edge softening, despill, speck and hole clean-up, a new colour or gradient background and a soft shadow |
 | ◐ **Nirbhar Clear** | Photo quality — white balance, auto levels, denoise, dehaze, clarity, sharpen, or one automatic recipe |
 | ⤢ **Nirbhar Zoom** | Upscaler — 2×/3×/4×/8× with Lanczos, bicubic, EPX (pixel art) or nearest |
 | ◑ **Nirbhar Tone** | Halftone dots, duotone, gradient map, pencil sketch, colour-blindness check |
 | ▦ **Nirbhar Tile** | Seamless textures — roll and cross-fade the seams |
 | ◈ **Nirbhar Pal** | Palette studio — median-cut extraction, harmonies, WCAG contrast |
 | ▤ **Nirbhar Paper** | PDF maker — a real multi-page PDF, written byte by byte, no library |
-| ❒ **Nirbhar Sheet** | One `.ico` with 16–256 px icons, or a sprite sheet from your layers |
+| ❒ **Nirbhar Sheet** | One `.ico` with 16–256 px icons (plus a `.zip` of every size), or a sprite sheet from your layers |
 | ◇ **Nirbhar Vector** | SVG export — text and shapes stay editable vectors |
 | ✦ **Nirbhar Art** | Generative art composed from a written prompt, deterministic per seed |
 | ▣ **Nirbhar ID** | Passport / ID photo cropped at your country's size and tiled onto a print sheet |
+| ▥ **Nirbhar Collage** | Several photos on one grid, cells filled or letterboxed |
 | Ⓝ **Nirbhar Seal** | Tiled, angled watermark across the artwork |
-| ⇉ **Nirbhar Batch** | Convert and resize many images at once |
+| ⇉ **Nirbhar Batch** | Convert and resize many images at once, delivered as one `.zip` |
 
 Every tool shows a live preview, and **Add as new layer** puts the result on a new
 layer, so the original is never destroyed. Results that change the canvas size
@@ -138,9 +139,12 @@ else. The same text is in [`docs/NIRBHAR_MANUAL.md`](docs/NIRBHAR_MANUAL.md)
 (English + Hindi), including an honest table of how each tool works and where its
 limits are.
 
-The whole toolkit is two files, both plain JavaScript with no dependency:
-`js/nirbhar.js` (the maths, runnable in Node) and `js/nirbhar-ui.js` (the panel
-and dialogs). The translations live in `js/nirbhar-i18n.js`.
+The whole toolkit is three files, all plain JavaScript with no dependency:
+`js/nirbhar.js` (the maths, runnable in Node), `js/nirbhar-ui.js` (the panel and
+dialogs) and `js/nirbhar-worker.js`, which runs the heavy tools off the main
+thread so a large canvas never freezes the editor. The translations live in
+`js/nirbhar-i18n.js`. Open the panel from the **Nirbhar** tab, the file menu or
+by pressing `N`.
 
 ## Getting started
 
@@ -165,6 +169,7 @@ python3 -m http.server 8000
 | `L` | Line | `H` | Pan |
 | `R` | Rectangle | `X` | Swap colours |
 | `O` | Ellipse | `[` `]` | Brush size |
+| `N` | Nirbhar toolkit | | |
 | `C` | Crop | `Esc` | Deselect |
 | `+` `-` | Zoom | `0` | Fit to screen |
 | `Ctrl+Z` | Undo | `Ctrl+Shift+Z` | Redo |
@@ -178,6 +183,7 @@ css/style.css       the whole UI, including the mobile bottom sheet
 js/core.js          pure image routines: colour maths, effects, dithering, 3D, photo tools (no DOM)
 js/nirbhar.js       the Nirbhar engine: cutout, enhance, upscale, PDF, ICO, SVG, generative art (no DOM)
 js/nirbhar-ui.js    Nirbhar panel, tool dialogs and the manual
+js/nirbhar-worker.js  runs the heavy Nirbhar tools off the main thread
 js/nirbhar-i18n.js  the manual in ten languages
 js/app.js           editor: tools, layers, text styling, stickers, history, file IO
 fonts/              the twelve web fonts, self-hosted (no font CDN)

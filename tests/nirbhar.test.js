@@ -231,3 +231,88 @@ test('fitBox never returns a zero dimension', () => {
   assert.strictEqual(box.width, 10);
   assert.strictEqual(box.height, 5);
 });
+
+/* ---------------------------------------------- cut refinement and background */
+
+test('refineCut drops specks and fills holes inside the subject', () => {
+  const messy = img(60, 60, (x, y) => {
+    if (x === 2 && y === 2) return [220, 30, 40];                 // stray speck
+    const body = x > 15 && x < 45 && y > 15 && y < 45;
+    const hole = x > 27 && x < 33 && y > 27 && y < 33;
+    if (body && !hole) return [220, 30, 40];
+    return [250, 250, 250, 0];                                     // transparent bg
+  });
+  const out = N.refineCut(messy, { minArea: 0.002, fillHoles: true });
+  assert.strictEqual(px(out, 2, 2)[3], 0, 'speck removed');
+  assert.strictEqual(px(out, 30, 30)[3], 255, 'hole filled');
+  assert.strictEqual(px(out, 20, 20)[3], 255, 'subject kept');
+  assert.strictEqual(px(out, 30, 30)[0], 220, 'hole takes the colour around it');
+});
+
+test('refineCut keeps a large second subject', () => {
+  const two = img(80, 40, (x) => {
+    if (x > 5 && x < 30) return [10, 200, 10];
+    if (x > 50 && x < 75) return [10, 10, 200];
+    return [255, 255, 255, 0];
+  });
+  const out = N.refineCut(two, { minArea: 0.02, fillHoles: false });
+  assert.strictEqual(px(out, 15, 20)[3], 255, 'first subject kept');
+  assert.strictEqual(px(out, 60, 20)[3], 255, 'second subject kept');
+});
+
+test('backdrop paints a solid background behind a cutout', () => {
+  const cut = img(20, 20, (x, y) => (x > 5 && x < 15 && y > 5 && y < 15 ? [255, 0, 0, 255] : [0, 0, 0, 0]));
+  const out = N.backdrop(cut, { mode: 'color', color: '#0a3d62' });
+  assert.deepStrictEqual(px(out, 1, 1).slice(0, 4), [10, 61, 98, 255]);
+  assert.deepStrictEqual(px(out, 10, 10).slice(0, 3), [255, 0, 0]);
+});
+
+test('backdrop draws a shadow outside the subject', () => {
+  const cut = img(30, 30, (x, y) => (x > 10 && x < 20 && y > 10 && y < 20 ? [255, 255, 255, 255] : [0, 0, 0, 0]));
+  const plain = N.backdrop(cut, { mode: 'color', color: '#ffffff' });
+  const shaded = N.backdrop(cut, { mode: 'color', color: '#ffffff', shadow: { blur: 4, dy: 5, opacity: 0.6 } });
+  assert.strictEqual(px(plain, 15, 24)[0], 255, 'plain background is white below the subject');
+  assert.ok(px(shaded, 15, 24)[0] < 240, 'shadow darkens below the subject');
+});
+
+test('backdrop keeps transparency when the mode is none', () => {
+  const cut = img(10, 10, (x) => (x < 5 ? [9, 9, 9, 255] : [0, 0, 0, 0]));
+  const out = N.backdrop(cut, { mode: 'none' });
+  assert.strictEqual(px(out, 8, 5)[3], 0);
+});
+
+/* ------------------------------------------------------------------ zip pack */
+
+test('zip writes a readable archive with a CRC for each file', () => {
+  const files = [
+    { name: 'a.txt', data: new Uint8Array([104, 105]) },
+    { name: 'b.bin', data: new Uint8Array([1, 2, 3, 4, 5]) }
+  ];
+  const bytes = N.zip(files);
+  const text = Buffer.from(bytes).toString('latin1');
+  assert.strictEqual(bytes[0], 0x50);
+  assert.strictEqual(bytes[1], 0x4b);
+  assert.strictEqual((text.match(/PK\x03\x04/g) || []).length, 2, 'two local headers');
+  assert.strictEqual((text.match(/PK\x01\x02/g) || []).length, 2, 'two central entries');
+  assert.ok(text.includes('PK\x05\x06'), 'end of central directory');
+  assert.ok(text.includes('a.txt') && text.includes('b.bin'));
+  assert.strictEqual(N.crc32(new Uint8Array([104, 105])), 0xd8932aac, "CRC-32 matches zlib for \"hi\"");
+});
+
+/* -------------------------------------------------------------------- collage */
+
+test('collage lays photos on a grid with gaps', () => {
+  const a = img(20, 10, () => [255, 0, 0]);
+  const b = img(10, 20, () => [0, 0, 255]);
+  const out = N.collage([a, b, a, b], { cols: 2, cellW: 20, cellH: 20, gap: 4, bg: '#101010' });
+  assert.strictEqual(out.width, 2 * 20 + 3 * 4);
+  assert.strictEqual(out.height, 2 * 20 + 3 * 4);
+  assert.strictEqual(px(out, 2, 2)[3], 255, 'background is opaque');
+  assert.deepStrictEqual(px(out, 12, 12).slice(0, 3), [255, 0, 0], 'first cell holds the first photo');
+});
+
+test('collage survives a single image and an empty list', () => {
+  const one = img(8, 8, () => [1, 2, 3]);
+  assert.strictEqual(N.collage([one], { cols: 1, cellW: 8, cellH: 8, gap: 0 }).width, 8);
+  assert.strictEqual(N.collage([], {}).width, 1);
+});

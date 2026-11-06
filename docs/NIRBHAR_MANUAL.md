@@ -10,7 +10,7 @@ This is the same manual the editor shows in **Nirbhar → Manual**, which switch
 
 ### What Nirbhar is
 
-Nirbhar means self-reliant. It is the offline toolbox built into Pixel Studio Edit: thirteen tools that remove a background, lift photo quality, upscale, make a PDF, build an app icon, draw generative art and more. Everything is computed by this page on your own device. There is no upload, no account, no API key, no model download and no internet connection involved.
+Nirbhar means self-reliant. It is the offline toolbox built into Pixel Studio Edit: fourteen tools that remove a background, put a new one behind it, lift photo quality, upscale, make a PDF, build an app icon, lay out a photo grid, draw generative art and more. Everything is computed by this page on your own device. There is no upload, no account, no API key, no model download and no internet connection involved.
 
 ### Start in four steps
 
@@ -19,13 +19,13 @@ Nirbhar means self-reliant. It is the offline toolbox built into Pixel Studio Ed
 3. Change the settings until the preview looks right; the preview is a scaled copy, the real work happens at full size.
 4. Press Add as new layer. Your original stays exactly as it was, and the result becomes a new layer you can keep editing.
 
-### The thirteen tools
+### The fourteen tools
 
 ### ✂ Nirbhar Cut — Background remover
 
 Removes the background from a photo, logo or scan and keeps the subject.
 
-*Choose Auto to sample the four corners, or pick a colour to knock out. Raise Tolerance when leftovers remain, and lower it when the subject is being eaten. Edge soften keeps hair and antialiased edges clean, and Clean colour fringes removes the coloured halo.*
+*Choose Auto to sample the four corners, or pick a colour to knock out. Raise Tolerance when leftovers remain, and lower it when the subject is being eaten. Edge soften keeps hair and antialiased edges clean, and Clean colour fringes removes the coloured halo. Remove specks and fill holes tidies the result by dropping stray dots and painting over gaps inside the subject. Set New background to a colour or a gradient, and switch on Soft shadow for a product-photo look.*
 
 ### ◐ Nirbhar Clear — Photo quality
 
@@ -87,6 +87,12 @@ Crops a photo to passport size and lays many copies on one print sheet.
 
 *Pick the size your country asks for, the print DPI and how many copies fit on the sheet. Download the PNG and print it at the stated DPI for a correctly sized photo.*
 
+### ▥ Nirbhar Collage — Photo grid
+
+Lays several photos on one grid, cropped to the same cells.
+
+*Add the photos, choose how many columns, the cell size and the gap, then pick Fill the cell for a tidy grid or Whole photo to keep every edge. The result opens as a new document, ready to export or to turn into a PDF with Nirbhar Paper.*
+
 ### Ⓝ Nirbhar Seal — Watermark & stamp
 
 Adds a tiled watermark or stamp across the artwork.
@@ -107,19 +113,20 @@ the pixels, written for this project:
 
 | Tool | How it works | Honest limit |
 | --- | --- | --- |
-| Cut | colour-aware flood fill from the frame edge, then alpha feather and despill | a busy, low-contrast background needs a hand-made selection or a colour key |
+| Cut | colour-aware flood fill from the frame edge, alpha feather, despill, then connected-region clean-up (specks dropped, holes filled) and an optional new background with a soft shadow | a busy, low-contrast background needs a hand-made selection or a colour key |
 | Clear | grey-world white balance, per-channel histogram stretch, bilateral denoise, unsharp mask on luminance | it cannot invent detail that is not in the photo |
 | Zoom | separable Lanczos-3 / bicubic, plus EPX (Scale2x) for pixel art | 8× from a tiny source stays soft; it does not hallucinate texture |
 | Tone | rotated halftone screen, luminance→gradient lookup, Sobel edges, Brettel colour matrices | — |
 | Tile | half-roll plus mirrored seam cross-fade | heavy directional light still shows a soft seam |
 | Pal | median-cut quantisation, HSV harmonies, WCAG relative luminance | — |
 | Paper | a hand-written PDF writer (catalog, pages, DCTDecode JPEG streams, xref) | text in the PDF is an image, not selectable text |
-| Sheet | PNG payloads inside an ICO directory; grid compositor for sprites | — |
+| Sheet | PNG payloads inside an ICO directory, plus a ZIP of every size; grid compositor for sprites | — |
 | Vector | the object model is already vector data, so it is serialised to SVG | 3D depth and curved text only exist in the bitmap export |
 | Art | seeded procedural composition (mesh, waves, geometry, rings, grain) | it composes shapes and colour; it is not a diffusion model |
-| ID | aspect-cover crop at a chosen DPI, tiled onto a print sheet | face detection is not included, so check the crop before printing |
+| ID | aspect-cover crop at a chosen DPI, tiled onto a print sheet, with the crop position adjustable | face detection is not included, so check the crop before printing |
+| Collage | cover or contain crop into a fixed grid, with gaps and a background colour | no drag-and-drop reordering; photos land in the order you add them |
 | Seal | text rasterised by the browser, then rotated and tiled with alpha | — |
-| Batch | Lanczos resize plus the browser's own JPEG/PNG/WebP encoder | — |
+| Batch | Lanczos resize plus the browser's own JPEG/PNG/WebP encoder, packed with a hand-written store-only ZIP writer | — |
 
 ### What was studied to build it
 
@@ -141,7 +148,7 @@ app, model or service is bundled, called or copied.
 - Every tool adds a new layer, so you can compare it with the original by hiding the layer.
 - The preview is a scaled copy for speed; the result you apply is always full resolution.
 - Cut, Clear, Zoom and ID can produce a different size. Use Open as new document for those.
-- If a tool feels slow on a huge canvas, run it on the active layer instead of the whole design.
+- If a tool feels slow on a huge canvas, run it on the active layer instead of the whole design; the heavy tools also run in a background thread so the editor stays usable.
 - Everything here works with the internet switched off, including the manual.
 
 ### Offline by design
@@ -251,6 +258,12 @@ markers, and translate the text between them. Nothing else has to change.
 फोटो को पासपोर्ट साइज़ में क्रॉप करता है और एक प्रिंट शीट पर कई कॉपियां रखता है।
 
 *अपने देश द्वारा मांगे गए साइज़, प्रिंट DPI और शीट पर कितनी कॉपियां फिट होंगी, यह चुनें। PNG डाउनलोड करें और सही साइज़ की फोटो के लिए बताए गए DPI पर इसे प्रिंट करें।*
+
+### ▥ Nirbhar Collage — Photo grid
+
+
+
+**
 
 ### Ⓝ Nirbhar Seal — Watermark & stamp
 

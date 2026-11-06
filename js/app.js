@@ -2370,6 +2370,10 @@
     on('m-export', 'click', function () { byId('menu-pop').hidden = true; exportDialog(); });
     on('m-templates', 'click', function () { byId('menu-pop').hidden = true; templatesDialog(); });
     on('m-canvas', 'click', function () { byId('menu-pop').hidden = true; canvasDialog(); });
+    on('m-nirbhar', 'click', function () {
+      byId('menu-pop').hidden = true;
+      openTab('nirbhar');
+    });
     on('m-restore', 'click', function () {
       byId('menu-pop').hidden = true;
       var raw = localStorage.getItem(AUTOSAVE_KEY);
@@ -2955,6 +2959,7 @@
       return;
     }
     if (k === 'x') { swapColours(); return; }
+    if (k === 'n') { openTab('nirbhar'); return; }
     if (k === '[') { S.brush = Math.max(1, S.brush - 1); byId('q-brush').value = S.brush; byId('q-brush-val').textContent = S.brush; return; }
     if (k === ']') { S.brush = Math.min(24, S.brush + 1); byId('q-brush').value = S.brush; byId('q-brush-val').textContent = S.brush; return; }
     if (k === '+' || k === '=') { setZoom(effZoom() + 1); return; }
