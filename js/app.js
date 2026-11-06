@@ -2989,6 +2989,80 @@
     if (window.matchMedia('(min-width: 881px)').matches) openTab('text');
   }
 
+  /* The Nirbhar engine returns plain {width,height,data} buffers; the canvas API
+     only accepts a real ImageData, so convert once here. */
+  function asImageData(img) {
+    if (!img) return null;
+    if (typeof ImageData !== 'undefined' && img instanceof ImageData) return img;
+    return new ImageData(new Uint8ClampedArray(img.data), img.width, img.height);
+  }
+
+  /* Public hook for the Nirbhar toolkit (js/nirbhar-ui.js). It exposes only the
+     few operations a tool needs — read the design, hand back a finished image —
+     so the toolkit never reaches into editor internals. */
+  window.PSApp = {
+    get state() { return S; },
+    toast: toast,
+    saveBlob: saveBlob,
+    openTab: openTab,
+    pushHistory: pushHistory,
+    render: render,
+    renderLayers: renderLayers,
+    /* the flattened design, including objects */
+    designImageData: function () {
+      composite();
+      return compCtx.getImageData(0, 0, S.w, S.h);
+    },
+    /* only the layer you are painting on */
+    layerImageData: function () {
+      var l = activeLayer();
+      if (!l) return null;
+      return l.ctx.getImageData(0, 0, S.w, S.h);
+    },
+    activeLayerName: function () {
+      var l = activeLayer();
+      return l ? l.name : 'Layer';
+    },
+    addImageLayer: function (img, name) {
+      if (!img) return null;
+      if (img.width !== S.w || img.height !== S.h) {
+        toast('That result is ' + img.width + '×' + img.height + ' — open it as a new document');
+        return null;
+      }
+      var layer = mkLayer(name || 'Nirbhar');
+      layer.ctx.putImageData(asImageData(img), 0, 0);
+      S.layers.splice(S.active + 1, 0, layer);
+      S.active++;
+      pushHistory(); render(); renderLayers(); updateStatus();
+      return layer;
+    },
+    replaceActiveLayer: function (img) {
+      var l = activeLayer();
+      if (!l) return null;
+      if (img.width !== S.w || img.height !== S.h) { toast('Size mismatch — use a new document'); return null; }
+      l.ctx.putImageData(asImageData(img), 0, 0);
+      pushHistory(); render(); renderLayers();
+      return l;
+    },
+    newDocumentFrom: function (img) {
+      if (!img) return;
+      newDoc(img.width, img.height);
+      var layer = S.layers[0];
+      layer.ctx.putImageData(asImageData(img), 0, 0);
+      pushHistory(); fitZoom(); render(); renderLayers(); updateStatus();
+    },
+    objects: function () { return S.objects; },
+    docSize: function () { return { w: S.w, h: S.h }; },
+    usePalette: function (hexes) {
+      if (!hexes || !hexes.length) return;
+      S.palette = hexes.slice(0, 64);
+      renderPalette();
+    },
+    setColour: function (hex) { setColor(hex); },
+    /* opens the palette/colour tab so a picked colour is immediately usable */
+    showColourTab: function () { openTab('colour'); }
+  };
+
   /* Small read-only hook so the automated UI tests can inspect pixels. */
   window.PS = {
     get state() { return S; },

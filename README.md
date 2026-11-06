@@ -4,6 +4,8 @@ A free, open-source pixel art **and text** editor that runs entirely in your bro
 
 **Live editor:** [galeoindus.github.io/pixelstudioedit](https://galeoindus.github.io/pixelstudioedit/)
 
+**Nirbhar toolkit:** thirteen offline tools inside the editor — background remover, photo enhancer, upscaler, PDF maker, icon pack, SVG export, generative art and more. No upload, no account, no model download. See the [manual](docs/NIRBHAR_MANUAL.md).
+
 ![Pixel Studio Edit screenshot](docs/preview.png)
 
 ## Why it exists
@@ -41,6 +43,7 @@ The modes follow the job you picked on the start screen: *Create a design* and *
 
 **Installable, offline-capable**
 - Ships a web app manifest and a service worker, so the editor can be installed to the home screen and opens without a network connection (after the first visit)
+- **No font CDN** — the twelve web fonts are served from `fonts/` in this repository, so the typefaces work with the network switched off too
 
 **Editable objects** (text and shapes stay live, not baked pixels)
 - Text is created as an **object**: tap it in the Layers panel to select, change the words, font, size, gradient, stroke, shadow, curve or 3D depth at any time — the object updates in place
@@ -101,6 +104,44 @@ The modes follow the job you picked on the start screen: *Create a design* and *
 - **Import a photo at its native size** — "Edit a photo" resizes the document to the image first and draws it 1:1, so photos stay sharp instead of being downsampled and blown back up
 - Autosave to local storage, restorable at any time
 
+## Nirbhar — the offline toolkit
+
+**Nirbhar** (निर्भर, "self-reliant") is a panel of thirteen tools that do the jobs
+people normally leave the browser for — remove a background, upscale a photo,
+make a PDF, build a favicon — and does them here, on your machine, with no
+upload, no account, no API key and no model download. Open it from the
+**Nirbhar** tab, or from the Nirbhar button on the start screen.
+
+| Tool | What it does |
+| --- | --- |
+| ✂ **Nirbhar Cut** | Background remover — colour-aware flood fill from the frame edge, then edge softening and despill |
+| ◐ **Nirbhar Clear** | Photo quality — white balance, auto levels, denoise, dehaze, clarity, sharpen, or one automatic recipe |
+| ⤢ **Nirbhar Zoom** | Upscaler — 2×/3×/4×/8× with Lanczos, bicubic, EPX (pixel art) or nearest |
+| ◑ **Nirbhar Tone** | Halftone dots, duotone, gradient map, pencil sketch, colour-blindness check |
+| ▦ **Nirbhar Tile** | Seamless textures — roll and cross-fade the seams |
+| ◈ **Nirbhar Pal** | Palette studio — median-cut extraction, harmonies, WCAG contrast |
+| ▤ **Nirbhar Paper** | PDF maker — a real multi-page PDF, written byte by byte, no library |
+| ❒ **Nirbhar Sheet** | One `.ico` with 16–256 px icons, or a sprite sheet from your layers |
+| ◇ **Nirbhar Vector** | SVG export — text and shapes stay editable vectors |
+| ✦ **Nirbhar Art** | Generative art composed from a written prompt, deterministic per seed |
+| ▣ **Nirbhar ID** | Passport / ID photo cropped at your country's size and tiled onto a print sheet |
+| Ⓝ **Nirbhar Seal** | Tiled, angled watermark across the artwork |
+| ⇉ **Nirbhar Batch** | Convert and resize many images at once |
+
+Every tool shows a live preview, and **Add as new layer** puts the result on a new
+layer, so the original is never destroyed. Results that change the canvas size
+(zoom, ID sheet, art) offer **Open as new document** instead.
+
+**The manual** ships with the app in ten languages — English, हिन्दी, বাংলা, தமிழ்,
+తెలుగు, मराठी, ગુજરાતી, ಕನ್ನಡ, മലയാളം and ਪੰਜਾਬੀ — and works offline like everything
+else. The same text is in [`docs/NIRBHAR_MANUAL.md`](docs/NIRBHAR_MANUAL.md)
+(English + Hindi), including an honest table of how each tool works and where its
+limits are.
+
+The whole toolkit is two files, both plain JavaScript with no dependency:
+`js/nirbhar.js` (the maths, runnable in Node) and `js/nirbhar-ui.js` (the panel
+and dialogs). The translations live in `js/nirbhar-i18n.js`.
+
 ## Getting started
 
 Open `index.html` in a browser — no build step, no dependencies.
@@ -135,20 +176,27 @@ python3 -m http.server 8000
 index.html          markup: rail, quick bar, canvas, tabbed panels
 css/style.css       the whole UI, including the mobile bottom sheet
 js/core.js          pure image routines: colour maths, effects, dithering, 3D, photo tools (no DOM)
+js/nirbhar.js       the Nirbhar engine: cutout, enhance, upscale, PDF, ICO, SVG, generative art (no DOM)
+js/nirbhar-ui.js    Nirbhar panel, tool dialogs and the manual
+js/nirbhar-i18n.js  the manual in ten languages
 js/app.js           editor: tools, layers, text styling, stickers, history, file IO
+fonts/              the twelve web fonts, self-hosted (no font CDN)
 tests/core.test.js  unit tests for js/core.js
+tests/nirbhar.test.js  unit tests for js/nirbhar.js
 tests/ui.js         headless browser test: boots the app and drives every control
 manifest.json       PWA manifest (installable app)
 sw.js               service worker caching the app shell for offline use
 js/effects-worker.js  web worker that runs filters, palette and dithering off the main thread
 icons/              app icons (192 and 512 px)
 docs/preview.png    screenshot used above
+docs/NIRBHAR_MANUAL.md  the Nirbhar manual, English + Hindi
 ```
 
-`js/core.js` has no DOM dependency, so the image maths runs in Node:
+`js/core.js` and `js/nirbhar.js` have no DOM dependency, so the image maths runs in Node:
 
 ```bash
 node tests/core.test.js
+node --test tests/nirbhar.test.js
 ```
 
 The UI test drives a real Chromium through puppeteer and checks that every tool, panel and button actually does something:

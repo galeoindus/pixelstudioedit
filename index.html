@@ -14,9 +14,9 @@
 <meta property="og:url" content="https://galeoindus.github.io/pixelstudioedit/">
 <meta property="og:image" content="https://galeoindus.github.io/pixelstudioedit/docs/preview.png">
 <meta name="twitter:card" content="summary_large_image">
-<link rel="preconnect" href="https://fonts.googleapis.com">
-<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&family=Bungee&family=Lobster&family=Pacifico&family=Anton&family=Righteous&family=Monoton&family=Orbitron:wght@700&family=Bebas+Neue&family=Caveat:wght@700&family=Fredoka:wght@600&family=Cinzel:wght@700&display=swap" rel="stylesheet">
+<!-- Fonts are served from this folder, not from a font CDN: the editor has to
+     open and look right with no network at all. -->
+<link rel="stylesheet" href="fonts/fonts.css">
 <link rel="manifest" href="manifest.json">
 <link rel="apple-touch-icon" href="icons/icon-192.png">
 <link rel="stylesheet" href="css/style.css">
@@ -48,6 +48,9 @@
     <div class="start-foot">
       <button class="btn" id="start-open">Open a project…</button>
       <button class="btn" id="start-skip">Continue where I left off</button>
+      <button class="btn nirbhar-start" id="start-nirbhar" title="Offline toolkit: background remover, enhancer, upscaler, PDF, icons">
+        <b>Nirbhar toolkit</b> — 13 offline tools
+      </button>
     </div>
   </div>
 </div>
@@ -172,6 +175,7 @@
         <button class="tab" data-tab="layers">Layers</button>
         <button class="tab" data-tab="effects">FX</button>
         <button class="tab" data-tab="3d">3D</button>
+        <button class="tab tab-nirbhar" data-tab="nirbhar">Nirbhar</button>
       </div>
 
       <div class="sheet-body" id="sheet-body">
@@ -410,6 +414,11 @@
           </div>
         </section>
 
+        <!-- ---------------------------------------------------------- NIRBHAR -->
+        <section class="pane" data-pane="nirbhar">
+          <div id="nirbhar-hub"></div>
+        </section>
+
       </div>
     </aside>
   </main>
@@ -421,6 +430,9 @@
 <div id="toast"></div>
 
 <script src="js/core.js"></script>
+<script src="js/nirbhar.js"></script>
+<script src="js/nirbhar-i18n.js"></script>
 <script src="js/app.js"></script>
+<script src="js/nirbhar-ui.js"></script>
 </body>
 </html>

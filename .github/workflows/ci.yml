@@ -3,6 +3,9 @@ name: ci
 # Added by the automation maintenance run (WF-04, task 20261103-F01).
 # Until now nothing verified this repository: main deploys the live editor
 # and a syntax error or a broken core function would ship unchecked.
+#
+# The Nirbhar run (2026-11-06) added a second engine module, so both test files
+# now run on every push, and the bundled fonts are checked for presence.
 
 on:
   push:
@@ -19,6 +22,29 @@ jobs:
           node-version: '20'
       - name: Syntax check every module
         run: |
-          for f in js/*.js tests/*.js; do node --check "$f"; done
+          for f in js/*.js tests/*.js sw.js; do node --check "$f"; done
       - name: Run core tests
         run: node --test tests/core.test.js
+      - name: Run Nirbhar engine tests
+        run: node --test tests/nirbhar.test.js
+      - name: Check the self-hosted fonts are present
+        run: |
+          test -f fonts/fonts.css
+          for f in fonts/*.woff2; do test -s "$f" || { echo "empty font: $f"; exit 1; }; done
+          count=$(ls fonts/*.woff2 | wc -l)
+          test "$count" -ge 12 || { echo "expected 12 fonts, found $count"; exit 1; }
+      - name: Check the manual ships in every language
+        run: |
+          node -e "
+            global.window = {};
+            require('./js/nirbhar-i18n.js');
+            const b = window.PSNirbharI18N;
+            if (b.order.length < 10) { console.error('missing languages'); process.exit(1); }
+            for (const code of b.order) {
+              const l = b.langs[code];
+              if (!l || !l.manual || l.manual.length < 200) { console.error('short manual for ' + code); process.exit(1); }
+              const tools = Object.keys(l.tools || {});
+              if (tools.length < 13) { console.error(code + ' covers only ' + tools.length + ' tools'); process.exit(1); }
+            }
+            console.log('manual ok for ' + b.order.length + ' languages');
+          "

@@ -117,7 +117,7 @@ const check = (name, ok, detail) => {
     return dup;
   });
   check('no duplicate element ids', dupIds.length === 0, dupIds.join(', '));
-  check('boots with all controls', boot.tools === 11 && boot.tabs === 7 && boot.panes === 7 && boot.layers === 1, JSON.stringify(boot));
+  check('boots with all controls', boot.tools === 11 && boot.tabs === 8 && boot.panes === 8 && boot.layers === 1, JSON.stringify(boot));
 
   // 2 pencil / undo / redo
   await tool('pencil');
@@ -650,7 +650,49 @@ const check = (name, ok, detail) => {
   check('selection exists', await page.evaluate(() => !!window.PS.state.sel),
     JSON.stringify(await page.evaluate(() => window.PS.state.sel)));
 
-  // 19 mobile layout sanity
+  // 19 nirbhar toolkit: cards, a live preview, apply and the multilingual manual
+  await page.evaluate(() => document.querySelector('.tab[data-tab="nirbhar"]').click());
+  await new Promise(r => setTimeout(r, 300));
+  const nbCards = await page.evaluate(() => document.querySelectorAll('[data-nb-tool]').length);
+  check('nirbhar hub lists every tool', nbCards === 13, nbCards);
+  await page.evaluate(() => document.querySelector('[data-nb-tool="cut"]').click());
+  await new Promise(r => setTimeout(r, 800));
+  const nbPreview = await page.evaluate(() => {
+    const cv = document.getElementById('nb-preview');
+    if (!cv) return null;
+    const d = cv.getContext('2d').getImageData(0, 0, cv.width, cv.height).data;
+    let ink = 0;
+    for (let i = 3; i < d.length; i += 4) if (d[i] > 8) ink++;
+    return { ink, note: document.getElementById('nb-note').textContent };
+  });
+  check('nirbhar tool preview renders', !!nbPreview && nbPreview.ink > 0, JSON.stringify(nbPreview));
+  const nbLayersBefore = await page.evaluate(() => window.PS.state.layers.length);
+  await page.evaluate(() => document.querySelector('[data-apply]').click());
+  await new Promise(r => setTimeout(r, 1200));
+  const nbAfter = await page.evaluate(() => {
+    const s = window.PS.state;
+    const l = s.layers[s.layers.length - 1];
+    const d = l.ctx.getImageData(0, 0, s.w, s.h).data;
+    return { layers: s.layers.length, corner: d[3], centre: d[(Math.floor(s.h / 2) * s.w + Math.floor(s.w / 2)) * 4 + 3] };
+  });
+  check('nirbhar apply adds a layer', nbAfter.layers === nbLayersBefore + 1, JSON.stringify(nbAfter));
+  check('nirbhar cut clears the background', nbAfter.corner < 40 && nbAfter.centre > 200, JSON.stringify(nbAfter));
+  await page.evaluate(() => document.getElementById('nb-manual').click());
+  await new Promise(r => setTimeout(r, 400));
+  const nbManual = await page.evaluate(() => ({
+    langs: document.querySelectorAll('[data-nb-lang]').length,
+    tools: document.querySelectorAll('.nb-manual-tool').length
+  }));
+  check('nirbhar manual is multilingual', nbManual.langs >= 9, JSON.stringify(nbManual));
+  check('nirbhar manual covers every tool', nbManual.tools === 13, nbManual.tools);
+  await page.evaluate(() => document.querySelector('[data-nb-lang="hi"]').click());
+  await new Promise(r => setTimeout(r, 250));
+  const nbHindi = await page.evaluate(() => document.querySelector('.nb-manual h4').textContent);
+  check('nirbhar manual switches language', /[\u0900-\u097F]/.test(nbHindi), nbHindi);
+  await page.evaluate(() => document.querySelector('.nb-overlay [data-close]').click());
+  await new Promise(r => setTimeout(r, 200));
+
+  // 20 mobile layout sanity
   await page.setViewport({ width: 390, height: 844, isMobile: true, hasTouch: true });
   await new Promise(r => setTimeout(r, 350));
   const mob = await page.evaluate(() => {
@@ -663,7 +705,7 @@ const check = (name, ok, detail) => {
   await page.setViewport({ width: 1440, height: 900 });
   await new Promise(r => setTimeout(r, 300));
 
-  // 20 errors
+  // 21 errors
   check('no page errors', errors.length === 0, errors.slice(0, 5).join(' | '));
   check('no missing elements', warns.length === 0, warns.slice(0, 5).join(' | '));
 
