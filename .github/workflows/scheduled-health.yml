@@ -1,0 +1,57 @@
+# Weekly health run — the checks a push does not trigger.
+#
+# ci.yml covers every push and pull request. Nothing runs when the repository
+# is quiet, so the things that rot slowly go unnoticed: an asset renamed out of
+# index.html, a service-worker shell entry that no longer exists, the GitHub
+# Pages deployment failing after an unrelated change. This runs every Monday
+# at 03:45 IST (22:15 UTC on Sunday) and on demand.
+name: scheduled health
+
+on:
+  schedule:
+    # 22:15 UTC Sunday = 03:45 IST Monday, just after the dependabot runs.
+    - cron: '15 22 * * 0'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: scheduled-health
+  cancel-in-progress: false
+
+jobs:
+  health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Syntax check every module
+        run: |
+          for f in js/*.js tests/*.js sw.js scripts/*.mjs; do node --check "$f"; done
+
+      - name: Run the test suites
+        run: |
+          node --test tests/core.test.js
+          node --test tests/nirbhar.test.js
+
+      - name: Weekly drift audit
+        run: node scripts/weekly-audit.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Live site smoke check
+        run: |
+          set -euo pipefail
+          url="https://galeoindus.github.io/pixelstudioedit/"
+          code=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 30 --retry 3 --retry-delay 5 "$url")
+          echo "live smoke: $url → HTTP $code"
+          {
+            echo "### Live smoke check"
+            echo ""
+            echo "\`$url\` → HTTP $code"
+          } >> "$GITHUB_STEP_SUMMARY"
+          test "$code" = "200"
