@@ -556,14 +556,13 @@
       for (var x = 0; x < w; x++) {
         var i = (y * w + x) * 4;
         if (s[i + 3] === 0) continue;
-        var acc = [0, 0, 0], n = 0;
+        var acc = [0, 0, 0];
         for (var oy = -1; oy <= 1; oy++) {
           for (var ox = -1; ox <= 1; ox++) {
             var nx = clamp(x + ox, 0, w - 1), ny = clamp(y + oy, 0, h - 1);
             var wgt = k[(oy + 1) * 3 + (ox + 1)];
             var j = (ny * w + nx) * 4;
             acc[0] += s[j] * wgt; acc[1] += s[j + 1] * wgt; acc[2] += s[j + 2] * wgt;
-            n++;
           }
         }
         d[i] = clamp(acc[0], 0, 255);

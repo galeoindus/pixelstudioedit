@@ -52,7 +52,7 @@ ok('floyd-steinberg maps to palette', allGb);
 
 let k2 = img(4,4,[100,100,100,255]);
 C.ditherBayer(k2, C.PALETTES.grayscale.colors, 32);
-ok('bayer maps to palette', [0,36,72,109,145,182,218,255].includes(k2.data[0]) || true, k2.data[0]);
+ok('bayer maps to palette', [0,36,72,109,145,182,218,255].includes(k2.data[0]), k2.data[0]);
 
 let l2 = img(6,6,[0,0,0,255]);
 C.blur(l2, 2);
@@ -60,6 +60,10 @@ ok('blur keeps alpha', l2.data[3]===255);
 
 let n = img(4,4,[50,50,50,255]); C.noise(n, 20, 7);
 ok('noise deterministic', (()=>{ const m=img(4,4,[50,50,50,255]); C.noise(m,20,7); return m.data[0]===n.data[0]; })());
+
+// Unsharp mask: the kernel sums to 1, so a flat region must come back unchanged.
+let sh = img(4,4,[80,80,80,255]); C.sharpen(sh, 40);
+ok('sharpen leaves a flat region flat', sh.data[0]===80 && sh.data[3]===255, sh.data.slice(0,4));
 
 let s = img(2,2,[10,200,90,255]); C.saturation(s, -100);
 ok('saturation -100 grey', Math.abs(s.data[0]-s.data[1])<2 && Math.abs(s.data[1]-s.data[2])<2, s.data.slice(0,3));

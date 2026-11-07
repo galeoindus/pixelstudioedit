@@ -2,7 +2,7 @@
    Cache-first for the app shell, network-first for everything else.
    The Nirbhar toolkit and the self-hosted fonts are part of the shell, so the
    editor keeps working with the network switched off. */
-const VERSION = 'pse-v4';
+const VERSION = 'pse-v5';
 const SHELL = [
   './',
   'index.html',
@@ -46,22 +46,41 @@ self.addEventListener('activate', (event) => {
   );
 });
 
+/* The shell, as absolute URLs, so a request can be matched against it. */
+const SHELL_URLS = new Set(SHELL.map((path) => new URL(path, self.location.href).href));
+
+function store(req, res) {
+  const copy = res.clone();
+  caches.open(VERSION).then((cache) => cache.put(req, copy)).catch(() => {});
+  return res;
+}
+
 self.addEventListener('fetch', (event) => {
   const req = event.request;
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
   if (url.origin !== self.location.origin) return;
 
+  /* A page navigation is never answered from the cache first: index.html is in
+     the shell, and serving the cached copy would keep an old editor on screen
+     after a deploy until the cache name changed. */
+  const navigation = req.mode === 'navigate' || (req.headers.get('accept') || '').includes('text/html');
+
+  /* The rest of the shell is cache-first: it is the copy that has to be there
+     offline. */
+  if (!navigation && SHELL_URLS.has(url.href)) {
+    event.respondWith(
+      caches.match(req).then((hit) => hit || fetch(req).then((res) => store(req, res)).catch(() => caches.match('index.html')))
+    );
+    return;
+  }
+
+  /* Everything else is network-first, so a redeploy is picked up on the next
+     visit instead of being masked by a cached copy. A navigation falls back to
+     the cached shell, then to index.html, so offline still opens the editor. */
   event.respondWith(
-    caches.match(req).then((hit) => {
-      if (hit) return hit;
-      return fetch(req)
-        .then((res) => {
-          const copy = res.clone();
-          caches.open(VERSION).then((cache) => cache.put(req, copy)).catch(() => {});
-          return res;
-        })
-        .catch(() => caches.match('index.html'));
-    })
+    fetch(req)
+      .then((res) => store(req, res))
+      .catch(() => caches.match(req).then((hit) => hit || caches.match('index.html')))
   );
 });
