@@ -65,6 +65,7 @@ The modes follow the job you picked on the start screen: *Create a design* and *
 - **Make pixel art**: shrink into blocks and snap to the chosen palette, with optional dithering
 - **Scale** 25% / 50% / 200% / 400% and **crop to selection**
 - **Auto background removal** (samples the corners), remove white, or remove the primary colour
+- **AI remove background** (beta, optional) — a segmentation model that runs inside the browser. The first run downloads about 40 MB once; the image itself is never uploaded, and if the model cannot be loaded the colour-based remover takes over instead
 - **B&W, sepia, sharpen**, and **use image colours as palette** (extracts the dominant colours)
 
 **Stickers**

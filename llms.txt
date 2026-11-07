@@ -1,0 +1,54 @@
+# Pixel Studio Edit
+
+> Pixel Studio Edit is a free, open-source pixel art and text editor that runs
+> entirely in your browser. Text graphics, photo editing and pixel art share one
+> canvas, one set of editable layers and one export. There is no account, no
+> install and no upload: the image you open stays on your machine.
+
+The site is a single static page — `index.html` plus plain JavaScript modules,
+self-hosted web fonts and a service worker. It is MIT licensed and deployable to
+any static host.
+
+## What it is for
+
+- Making a banner, poster, story, meme or thumbnail from text and shapes,
+  without an account or a subscription.
+- Editing a photo in the browser — crop, scale, adjust, remove a background, add
+  text — with the pixels never leaving the device.
+- Turning a photo into pixel art: palette snapping, dithering and a pixel grid.
+
+## Where the work happens
+
+- Everything — drawing, layers, text styling, filters, dithering, PNG/JPEG/WebP
+  export, project save and load — runs in the browser tab. Nothing is uploaded
+  and no API key is involved.
+- The **Nirbhar** toolkit (fourteen offline tools: background remover, photo
+  enhancer, upscaler, halftone, seamless tiles, palette studio, PDF maker, icon
+  and sprite-sheet pack, SVG export, generative art, ID photo sheet, collage,
+  watermark, batch convert) is plain JavaScript with no dependency and no model
+  download.
+- One optional feature reaches the network: **AI remove background (beta)**. The
+  first use fetches a segmentation model — about 40 MB, once — from
+  `cdn.jsdelivr.net` and Hugging Face. The image is processed locally and is
+  never uploaded. If the model cannot be loaded, the colour-based remover runs
+  instead.
+
+## Pages
+
+- [Editor](https://galeoindus.github.io/pixelstudioedit/): the whole application
+  — start screen, canvas, tool rail, panels, Nirbhar.
+- [Nirbhar manual](https://github.com/galeoindus/pixelstudioedit/blob/main/docs/NIRBHAR_MANUAL.md):
+  what each of the fourteen tools does and where its limits are (English and
+  Hindi).
+- [Source](https://github.com/galeoindus/pixelstudioedit): the repository, the
+  issue tracker and the licence.
+
+## Notes for automated readers
+
+- This is an application, not a library of articles: there is one HTML page, and
+  its content is the editor itself. The interactive panels need JavaScript.
+- `sitemap.xml` lists that one page, at its canonical address
+  `https://galeoindus.github.io/pixelstudioedit/`.
+- `robots.txt` allows every crawler.
+- The page's structured data is a `WebApplication` entry describing the editor,
+  its price (free), its licence and its features.
